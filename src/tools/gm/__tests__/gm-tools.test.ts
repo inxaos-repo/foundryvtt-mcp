@@ -11,11 +11,11 @@ const ID = (n: number): string => `id${String(n).padStart(14, '0')}`;
 
 function makeWorld() {
   return {
-    userId: 'dmagent000000001',
+    userId: 'assistant0000001',
     users: [
-      { _id: 'dmagent000000001', name: 'dm-agent', role: 3 },
+      { _id: 'assistant0000001', name: 'assistant-gm', role: 3 },
       { _id: 'gm00000000000001', name: 'Gamemaster', role: 4 },
-      { _id: 'player0000000001', name: 'Damon', role: 1, character: ID(1) },
+      { _id: 'player0000000001', name: 'Player One', role: 1, character: ID(1) },
     ],
     activeUsers: ['player0000000001'],
     actors: [
@@ -226,19 +226,50 @@ describe('scene tools', () => {
     expect(op.data[0]?._id).toBeUndefined();
     expect(op.data[0]?.name).toBe('Copy');
     expect(op.data[0]?.active).toBe(false);
-    expect((op.data[0]?.walls as unknown[]).length).toBe(3);
+    expect((op.data[0]?.walls as unknown[] | undefined)?.length).toBe(3);
     expect(text).toContain('"walls": 3');
   });
 
-  it('activate_scene can pull players', async () => {
-    const { client, gmModify } = makeClient();
-    await run('activate_scene', client, { sceneId: 'Dungeon', pullPlayers: true });
-    expect(gmModify).toHaveBeenCalledWith('Scene', 'update', {
-      updates: [{ _id: ID(10), active: true }],
-    });
-    expect(
-      (client as unknown as { gmEmit: { mock: { calls: unknown[] } } }).gmEmit.mock.calls,
-    ).toHaveLength(3);
+  function emitCalls(client: FoundryClient): unknown[][] {
+    return (client as unknown as { gmEmit: { mock: { calls: unknown[][] } } }).gmEmit.mock.calls;
+  }
+
+  it('activate_scene activates an inactive scene and pulls non-GM players twice', async () => {
+    vi.useFakeTimers();
+    try {
+      const w = makeWorld();
+      (w.scenes[0] as { active: boolean }).active = false;
+      const { client, gmModify } = makeClient(w);
+      const p = run('activate_scene', client, { sceneId: 'Dungeon' });
+      await vi.runAllTimersAsync();
+      const { text } = await p;
+      expect(gmModify).toHaveBeenCalledWith('Scene', 'update', {
+        updates: [{ _id: ID(10), active: true }],
+      });
+      // Only the role-1 user is pulled; roles 3 (assistant) and 4 count as GMs.
+      expect(emitCalls(client)).toEqual([
+        ['pullToScene', ID(10), 'player0000000001', {}],
+        ['pullToScene', ID(10), 'player0000000001', {}],
+      ]);
+      expect(text).toContain('pulled 1 user(s)');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('activate_scene on an already-active scene still pulls players', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client, gmModify } = makeClient();
+      const p = run('activate_scene', client, { sceneId: 'Dungeon', includeGMs: true });
+      await vi.runAllTimersAsync();
+      const { text } = await p;
+      expect(gmModify).not.toHaveBeenCalled();
+      expect(emitCalls(client)).toHaveLength(6);
+      expect(text).toContain('Already active');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('create_token uses the prototype token with vision', async () => {
@@ -364,7 +395,9 @@ describe('play tools', () => {
     const { client, gmModify } = makeClient();
     const { text } = await run('gm_roll', client, { formula: '1d20', mode: 'blind' });
     expect(text).toMatch(/1d20 = \*\*\d+\*\*/);
-    const msg = (gmModify.mock.calls[0]?.[2] as { data: Array<Record<string, unknown>> }).data[0];
+    const msg = (
+      gmModify.mock.calls[0]?.[2] as { data: Array<Record<string, unknown>> } | undefined
+    )?.data[0];
     expect(msg).toMatchObject({ blind: true, whisper: ['gm00000000000001'] });
   });
 
@@ -372,7 +405,7 @@ describe('play tools', () => {
     const { client, gmModify } = makeClient();
     await run('post_chat', client, { content: 'Dust falls.' });
     await run('post_chat', client, { content: 'Grr', tokenId: ID(60), style: 'ic' });
-    await run('post_chat', client, { content: 'psst', whisperTo: ['Damon'] });
+    await run('post_chat', client, { content: 'psst', whisperTo: ['Player One'] });
     const msgs = gmModify.mock.calls.map(
       (c) => (c[2] as { data: Array<Record<string, unknown>> }).data[0],
     );
@@ -384,7 +417,7 @@ describe('play tools', () => {
   it('read_chat includes player rolls', async () => {
     const { client } = makeClient();
     const { text } = await run('read_chat', client, {});
-    expect(text).toContain('"author": "Damon"');
+    expect(text).toContain('"author": "Player One"');
     expect(text).toContain('"total": 14');
   });
 
