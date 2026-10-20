@@ -9,6 +9,7 @@ import {
   DOOR_TYPES,
   doorState,
   findBlockingWalls,
+  findGridPath,
   isDoor,
   type WallLike,
   wallMidpoint,
@@ -32,8 +33,101 @@ import {
 } from './helpers.js';
 import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 
+/** Foundry's placeholder token image. */
+export const DEFAULT_TOKEN_ICON = 'icons/svg/mystery-man.svg';
+
+/**
+ * Player-character tokens still using the placeholder icon. The icon is white
+ * and disappears on light-coloured maps, so flag them with a tint suggestion.
+ * A token counts as a player character when its actor is linked or is owned
+ * by a non-GM user. Tokens that already have a non-white tint are skipped.
+ */
+export function defaultIconWarnings(scene: Obj, w: Obj): string[] {
+  const users = embedded(w, 'users');
+  const players = new Set(users.filter((u) => Number(u.role ?? 0) < 3).map((u) => String(u._id)));
+  const actors = embedded(w, 'actors');
+  const out: string[] = [];
+  for (const t of embedded(scene, 'tokens')) {
+    const src = String((t.texture as Obj | undefined)?.src ?? '');
+    if (src !== DEFAULT_TOKEN_ICON) {
+      continue;
+    }
+    const actor = actors.find((a) => a._id === t.actorId);
+    const ownership = (actor?.ownership ?? {}) as Record<string, number>;
+    const playerOwned = Object.entries(ownership).some(([id, lvl]) => players.has(id) && lvl >= 3);
+    if (!t.actorLink && !playerOwned) {
+      continue;
+    }
+    const tint = String((t.texture as Obj | undefined)?.tint ?? '').toLowerCase();
+    if (tint && tint !== '#ffffff') {
+      continue; // already tinted
+    }
+    out.push(
+      `Token "${String(t.name)}" (${String(t._id)}) uses the default mystery-man icon, which is white and hard to see on light maps. Give it a portrait, or a strong tint such as texture.tint "#ff2020".`,
+    );
+  }
+  return out;
+}
+
 /** Delay before re-sending pullToScene, in ms. */
 export const PULL_RETRY_MS = 1500;
+
+/** Read-backs after resetFog, and the pause between them. */
+export const FOG_CONFIRM_POLLS = 6;
+export const FOG_CONFIRM_INTERVAL_MS = 400;
+
+/** How long to wait, after the last pull, for clients to report the new scene. */
+export const PULL_CONFIRM_MS = 2500;
+
+/**
+ * Send pullToScene to each target, re-send once to clients that have not
+ * reported the scene after {@link PULL_RETRY_MS} (a client still drawing the
+ * previous canvas ignores a view request), then wait for confirmations.
+ *
+ * A client reports the scene it finished drawing through `userActivity`;
+ * only users with an open client can confirm.
+ */
+async function pullAndConfirm(
+  client: FoundryClient,
+  sceneId: string,
+  targets: Array<{ _id: string; name: string }>,
+): Promise<{ confirmed: string[]; unconfirmed: string[]; offline: string[] }> {
+  if (!targets.length) {
+    return { confirmed: [], unconfirmed: [], offline: [] };
+  }
+  const active = new Set((world(client) as { activeUsers?: string[] }).activeUsers ?? []);
+  const online = targets.filter((u) => active.has(u._id));
+  const ids = online.map((u) => u._id);
+  client.clearViewedScene(ids);
+  const pull = async (users: Array<{ _id: string }>) => {
+    for (const u of users) {
+      await client.gmEmit('pullToScene', sceneId, u._id, {});
+    }
+  };
+  await pull(targets);
+  let seen = await client.waitForViewedScene(ids, sceneId, PULL_RETRY_MS);
+  const retry = online.filter((u) => !seen.includes(u._id));
+  if (retry.length) {
+    await pull(retry);
+    seen = await client.waitForViewedScene(ids, sceneId, PULL_CONFIRM_MS);
+  }
+  return {
+    confirmed: online.filter((u) => seen.includes(u._id)).map((u) => u.name),
+    unconfirmed: online.filter((u) => !seen.includes(u._id)).map((u) => u.name),
+    offline: targets.filter((u) => !active.has(u._id)).map((u) => u.name),
+  };
+}
+
+function pullSummary(r: { confirmed: string[]; unconfirmed: string[]; offline: string[] }): string {
+  const parts = [`${r.confirmed.length} confirmed on scene`];
+  if (r.unconfirmed.length) {
+    parts.push(`${r.unconfirmed.length} online but not confirmed (${r.unconfirmed.join(', ')})`);
+  }
+  if (r.offline.length) {
+    parts.push(`${r.offline.length} offline`);
+  }
+  return parts.join('; ');
+}
 
 /**
  * Users to pull on activation. Online status in the cached world data can be
@@ -191,21 +285,10 @@ export const sceneTools: GmToolSpec[] = [
         (bool(args, 'pullPlayers', true) ?? true)
           ? pullTargets(client, bool(args, 'includeGMs', false) ?? false)
           : [];
-      const pull = async () => {
-        for (const u of targets) {
-          await client.gmEmit('pullToScene', scene._id, u._id, {});
-        }
-      };
-      await pull();
-      // A client still drawing the previous canvas ignores a view request
-      // (canvas.loading), so repeat once after a short delay.
-      if (targets.length) {
-        await new Promise((r) => setTimeout(r, PULL_RETRY_MS));
-        await pull();
-      }
+      const pulled = await pullAndConfirm(client, scene._id, targets);
       return ok(
-        `🎬 ${wasActive ? 'Already active' : 'Activated'} "${scene.name}" (${scene._id}); pulled ${targets.length} user(s)`,
-        targets.map((u) => u.name),
+        `🎬 ${wasActive ? 'Already active' : 'Activated'} "${scene.name}" (${scene._id}); pulled ${targets.length} user(s): ${pullSummary(pulled)}`,
+        pulled,
       );
     },
   },
@@ -233,12 +316,10 @@ export const sceneTools: GmToolSpec[] = [
       const targets = keys.length
         ? keys.map((k) => findByIdOrName(users as Array<{ _id: string; name: string }>, k, 'User'))
         : users;
-      for (const u of targets) {
-        await client.gmEmit('pullToScene', scene._id, u._id, {});
-      }
+      const pulled = await pullAndConfirm(client, scene._id, targets);
       return ok(
-        `👁️ Pulled ${targets.length} user(s) to "${scene.name}"`,
-        targets.map((u) => u.name),
+        `👁️ Pulled ${targets.length} user(s) to "${scene.name}": ${pullSummary(pulled)}`,
+        pulled,
       );
     },
   },
@@ -298,6 +379,10 @@ export const sceneTools: GmToolSpec[] = [
           regions: embedded(s, 'regions').length,
         },
       };
+      const warnings = defaultIconWarnings(s, w);
+      if (warnings.length) {
+        out.warnings = warnings;
+      }
       if (bool(args, 'summary', false)) {
         return ok(`🗺️ ${s.name} (summary)`, out);
       }
@@ -547,7 +632,7 @@ export const sceneTools: GmToolSpec[] = [
   {
     name: 'move_token_checked',
     description:
-      'Move a token to pixel x,y (or by dx/dy grid squares) after checking that no movement-blocking wall or closed/locked door lies on the straight path between token centres. Refuses and names the blocking walls unless force=true. Approximate: ignores one-way walls and regions; not line of sight.' +
+      'Move a token to pixel x,y (or by dx/dy grid squares) only if it can walk there: finds a square-by-square route around movement-blocking walls and closed/locked doors (open doors pass). The token moves along that route. Refuses, naming the walls on the straight line, when no route exists unless force=true. Optional maxSteps caps the route length in squares. Approximate: ignores one-way walls, regions and terrain; not line of sight.' +
       WRITE_NOTE,
     inputSchema: {
       type: 'object',
@@ -559,6 +644,10 @@ export const sceneTools: GmToolSpec[] = [
         dx: { type: 'number', description: 'Grid squares to move right (negative = left)' },
         dy: { type: 'number', description: 'Grid squares to move down (negative = up)' },
         force: { type: 'boolean', description: 'Move even if walls block (GM teleport)' },
+        maxSteps: {
+          type: 'number',
+          description: 'Refuse if the walking route is longer than this many squares',
+        },
       },
       required: ['tokenId'],
     },
@@ -587,20 +676,40 @@ export const sceneTools: GmToolSpec[] = [
       };
       const from = { x: tx + half.x, y: ty + half.y };
       const to = { x: x + half.x, y: y + half.y };
-      const blockers = findBlockingWalls(
-        embedded(scene, 'walls') as unknown as WallLike[],
-        from,
-        to,
-      );
-      if (blockers.length && !bool(args, 'force', false)) {
+      const walls = embedded(scene, 'walls') as unknown as WallLike[];
+      const force = bool(args, 'force', false);
+      const maxSteps = num(args, 'maxSteps', false);
+      const dims = scene as { width?: number; height?: number; padding?: number };
+      const pad = Number(dims.padding ?? 0.25);
+      const w = Number(dims.width ?? 0);
+      const h = Number(dims.height ?? 0);
+      // Keep the route on the scene rectangle, inside the canvas padding.
+      const padX = Math.ceil((w * pad) / size) * size;
+      const padY = Math.ceil((h * pad) / size) * size;
+      const bounds = w && h ? { x: padX, y: padY, width: w, height: h } : undefined;
+      const path = force ? null : findGridPath(walls, from, to, { size, bounds });
+      if (!force && (!path || (maxSteps !== undefined && path.steps > maxSteps))) {
+        const blockers = findBlockingWalls(walls, from, to);
+        const why = path
+          ? `the shortest walking route is ${path.steps} squares, over maxSteps ${maxSteps}`
+          : 'no walking route exists around the walls and closed doors';
         return ok(
-          `🧱 Blocked: ${blockers.length} wall(s) between ${token.name} and (${x},${y}). Open a door (set_door_state) or pass force=true.`,
+          `🧱 Blocked: ${why}, between ${token.name} and (${x},${y}).${path ? '' : ' Open a door (set_door_state) or'} Pass force=true to move anyway.`,
           blockers.map((b) => ({ ...summarizeWall(b), midpoint: wallMidpoint(b) })),
         );
       }
-      await tokenUpdate(client, scene._id, [{ _id: token._id, x, y }]);
+      const waypoints = path
+        ? path.points.slice(1, -1).map((p) => ({ x: p.x - half.x, y: p.y - half.y }))
+        : [];
+      await tokenUpdate(client, scene._id, [{ _id: token._id, x, y }], {
+        [String(token._id)]: waypoints,
+      });
+      const route = path
+        ? ` (${path.steps} square${path.steps === 1 ? '' : 's'}${waypoints.length ? `, ${waypoints.length} turn(s) around walls` : ''})`
+        : ' [forced]';
       return ok(
-        `🚶 Moved ${token.name} (${tx},${ty}) → (${x},${y})${blockers.length ? ' [forced through walls]' : ''}`,
+        `🚶 Moved ${token.name} (${tx},${ty}) → (${x},${y})${route}`,
+        path ? { waypoints } : undefined,
       );
     },
   },
@@ -666,12 +775,36 @@ export const sceneTools: GmToolSpec[] = [
   },
   {
     name: 'reset_fog',
-    description: `Reset fog of war exploration for everyone on a scene.${WRITE_NOTE}`,
+    description: `Reset fog of war exploration for everyone on a scene, then read back the saved fog records to confirm. Players still viewing the scene save fresh records for what they currently see, so a non-zero count afterwards is normal; their timestamps are newer than the reset.${WRITE_NOTE}`,
     inputSchema: { type: 'object', properties: { ...sceneIdProp } },
     async run(client, args) {
       const scene = getScene(client, str(args, 'sceneId', false));
+      const query = { query: { scene: scene._id } };
+      const before = ((await client.gmGet('FogExploration', query)) as Obj[]) ?? [];
       await client.gmEmit('resetFog', scene._id);
-      return ok(`🌫️ Fog reset on "${scene.name}"`);
+      // A record is stale if it survives unchanged; players still on the scene
+      // write new ones (new id or modified time). The server may finish the
+      // deletion after acknowledging the emit, so poll briefly.
+      const stamp = (f: Obj) =>
+        `${String(f._id)}:${String((f._stats as Obj | undefined)?.modifiedTime ?? f.timestamp ?? '')}`;
+      const old = new Set(before.map(stamp));
+      let after: Obj[] = [];
+      let stale: Obj[] = [];
+      for (let i = 0; i < FOG_CONFIRM_POLLS; i++) {
+        after = ((await client.gmGet('FogExploration', query)) as Obj[]) ?? [];
+        stale = after.filter((f) => old.has(stamp(f)));
+        if (!stale.length) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, FOG_CONFIRM_INTERVAL_MS));
+      }
+      const confirmed = stale.length === 0;
+      return ok(
+        confirmed
+          ? `🌫️ Fog reset on "${scene.name}": ${before.length} saved record(s) before, ${after.length} after (none left from before the reset)`
+          : `⚠️ Fog reset sent on "${scene.name}" but ${stale.length} record(s) from before the reset remain; it may not have applied`,
+        { before: before.length, after: after.length, stale: stale.length, confirmed },
+      );
     },
   },
   {

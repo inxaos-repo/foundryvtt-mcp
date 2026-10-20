@@ -44,6 +44,9 @@ export function makeWorld() {
         name: 'Dungeon',
         active: true,
         grid: { size: 100 },
+        width: 1000,
+        height: 1000,
+        padding: 0,
         environment: { darknessLevel: 0.4, globalLight: { enabled: false } },
         walls: [
           { _id: ID(20), c: [300, 0, 300, 1000], door: 1, ds: 0, move: 20 },
@@ -124,6 +127,8 @@ export function makeClient(w = makeWorld()) {
     gmGet: vi.fn(async () => []),
     gmEmit: vi.fn(async () => true),
     updateTokens: FoundryClient.prototype.updateTokens,
+    clearViewedScene: vi.fn(),
+    waitForViewedScene: vi.fn(async (ids: string[]) => ids),
   } as unknown as FoundryClient;
   return { client, gmModify, w };
 }
