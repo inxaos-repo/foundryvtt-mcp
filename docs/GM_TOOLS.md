@@ -22,7 +22,7 @@ assistant to write code that your players' browsers will run.
 | Tokens | `create_token`, `set_token_hidden`, `set_token_vision`, `delete_token`, `move_token_checked` |
 | Lookups (read-only) | `tokens_near`, `token_for_actor`, `turn_context` |
 | Doors, fog, lights, notes | `list_doors`, `set_door_state`, `reset_fog`, `get_fog_state`, `set_light_state`, `get_note_page` |
-| Chat and dice | `post_chat`, `read_chat`, `gm_roll`, `system_roll` |
+| Chat and dice | `post_chat`, `read_chat`, `gm_roll`, `system_roll`, `roll_table` |
 | Combat | `start_encounter`, `roll_initiative`, `combat_control`, `get_turn_order` |
 | Actors | `apply_damage`, `set_condition`, `adjust_item_quantity` |
 | Presentation | `share_journal`, `control_audio` |
@@ -95,6 +95,18 @@ An adapter for Old-School Essentials (`ose`) is included.
   walls: open doors and walls with no sight restriction do not block, limited
   walls block when two are crossed. It ignores lighting, darkness, token
   senses and one-way walls, so it can disagree with what a player sees.
+
+## Roll tables
+
+`roll_table` draws from a world RollTable by id or name (exact, then unique
+partial match). It rolls the table formula (or `1d<highest range>` when the
+formula is empty), picks the results whose range covers the total, and posts
+a draw card flagged `core.RollTable` with the roll attached unless the table
+hides its roll. Tables without replacement mark drawn results and skip them
+(rerolling, as Foundry does); `reset=true` clears the drawn flags first and
+`times` draws up to 10 results. Roll modes behave like Foundry's: in `gm` and
+`blind` mode other players still see that a private roll happened, but not
+the result. Compendium tables are not supported; import the table first.
 
 ## Limitations
 

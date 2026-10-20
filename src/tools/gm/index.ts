@@ -12,6 +12,7 @@ import { documentTools } from './document.js';
 import { lookupTools } from './lookup.js';
 import { mediaTools } from './media.js';
 import { partyTools } from './party.js';
+import { rollTableTools } from './roll-table.js';
 import { rulesTools } from './rules.js';
 import { sceneTools } from './scene.js';
 import { systemRollTools } from './system-roll.js';
@@ -22,6 +23,7 @@ export const gmToolSpecs: GmToolSpec[] = [
   ...sceneTools,
   ...lookupTools,
   ...chatTools,
+  ...rollTableTools,
   ...systemRollTools,
   ...combatTools,
   ...actorTools,
