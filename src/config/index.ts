@@ -101,7 +101,7 @@ function loadConfig(): Config {
     foundry: {
       url: process.env.FOUNDRY_URL,
       apiKey: process.env.FOUNDRY_API_KEY,
-      username: process.env.FOUNDRY_USERNAME,
+      username: process.env.FOUNDRY_USERNAME ?? process.env.FOUNDRY_USER,
       password: process.env.FOUNDRY_PASSWORD,
       userId: process.env.FOUNDRY_USER_ID,
       socketPath: process.env.FOUNDRY_SOCKET_PATH,

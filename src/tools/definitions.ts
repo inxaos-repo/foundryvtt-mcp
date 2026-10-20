@@ -174,6 +174,34 @@ export const itemTools = [
  */
 export const compendiumTools = [
   {
+    name: 'list_compendiums',
+    description:
+      'List compendium packs available in the world (id, label, document type, package, system). Read-only; uses the socket world data, no REST module needed. Use when: finding which packs exist before reading an index.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        package: { type: 'string', description: 'Optional: only packs from this package id' },
+        type: {
+          type: 'string',
+          description: 'Optional: only packs of this document type (Actor, Item, ...)',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_compendium_index',
+    description:
+      'Get the index (_id, name, type) of one compendium pack by its id (e.g. "ose-advancedfantasytome.abilities"). Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        packId: { type: 'string', description: 'Pack id as returned by list_compendiums' },
+        limit: { type: 'number', description: 'Max entries to return (default 500)' },
+      },
+      required: ['packId'],
+    },
+  },
+  {
     name: 'search_compendium',
     description:
       'Search FoundryVTT compendium packs by name and metadata; searches all enabled packs unless compendiumId scopes it to one pack. Use when: looking up spells, monsters, or equipment that are not yet present in the world. Do not use when: the document already exists in the world - use search_items or search_world. Requires the REST API module (FOUNDRY_API_KEY); without it the search returns no results instead of failing.',

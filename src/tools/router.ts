@@ -23,7 +23,11 @@ import {
   handleSetInitiative,
   handleStartCombat,
 } from './handlers/combat-mutations.js';
-import { handleSearchCompendium } from './handlers/compendium.js';
+import {
+  handleGetCompendiumIndex,
+  handleListCompendiums,
+  handleSearchCompendium,
+} from './handlers/compendium.js';
 import {
   handleDiagnoseErrors,
   handleGetHealthStatus,
@@ -122,6 +126,10 @@ export async function routeToolRequest(
       return handleSearchItems(args, foundryClient);
 
     // Compendium tools (#144)
+    case 'list_compendiums':
+      return handleListCompendiums(args as { package?: string; type?: string }, foundryClient);
+    case 'get_compendium_index':
+      return handleGetCompendiumIndex(args as { packId: string; limit?: number }, foundryClient);
     case 'search_compendium':
       if (!('query' in args) || typeof args.query !== 'string') {
         throw new Error('Missing required parameter: query');
