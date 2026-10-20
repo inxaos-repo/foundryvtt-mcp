@@ -192,6 +192,25 @@ export function stripHtml(html: unknown, max = 2000): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-export function pdtNow(): string {
-  return new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
+/** Resolve actor or (unlinked) token target for HP / effect changes. */
+export function resolveTarget(
+  client: FoundryClient,
+  args: Obj,
+): {
+  actor: ActorObj;
+  token?: Obj & { _id: string };
+  sceneId?: string;
+  unlinked: boolean;
+} {
+  const tokenId = str(args, 'tokenId', false);
+  if (tokenId) {
+    const { token, scene } = locateToken(client, tokenId, str(args, 'sceneId', false));
+    const actor = getActor(client, String(token.actorId));
+    return { actor, token, sceneId: scene._id, unlinked: !token.actorLink };
+  }
+  const actorId = str(args, 'actorId', false);
+  if (!actorId) {
+    throw new GmToolError('Pass tokenId or actorId');
+  }
+  return { actor: getActor(client, actorId), unlinked: false };
 }
