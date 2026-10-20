@@ -12,7 +12,7 @@
 
 import type { FoundryClient } from '../../foundry/client.js';
 import type { WorldCombat } from '../../foundry/types.js';
-import { getCurrentCombatant } from '../handlers/combat-order.js';
+import { getCurrentCombatant, turnOrderContext } from '../handlers/combat-order.js';
 import {
   blocksMovement,
   isDoor,
@@ -468,7 +468,7 @@ export const lookupTools: GmToolSpec[] = [
       if (!combat) {
         throw new GmToolError(combatId ? `Combat ${combatId} not found` : 'No active combat');
       }
-      const current = getCurrentCombatant(combat);
+      const current = getCurrentCombatant(combat, turnOrderContext(world(client), combat));
       if (!current) {
         return ok(`⚔️ Combat ${combat._id} has not started (no current combatant).`, {
           combatId: combat._id,

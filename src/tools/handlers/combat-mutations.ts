@@ -14,7 +14,9 @@ import type { WorldCombat, WorldScene } from '../../foundry/types.js';
 import {
   getCurrentCombatant,
   getTurnOrder,
+  type TurnOrderContext,
   turnIndexAfterInitiativeChange,
+  turnOrderContext,
 } from './combat-order.js';
 import { withToolError } from './utils.js';
 
@@ -45,11 +47,19 @@ interface CombatantSeed {
 export function computeNextTurn(
   combat: WorldCombat,
   skipDefeated = false,
+  ctx?: TurnOrderContext,
 ): { turn: number; round: number } {
-  const combatants = getTurnOrder(combat);
+  const combatants = getTurnOrder(combat, ctx);
   const n = combatants.length;
   if (n === 0) {
     throw new Error('Cannot advance turn: active combat has no combatants');
+  }
+
+  // Not begun yet (round 0): advancing BEGINS the encounter, like Foundry's
+  // "Begin Combat" -> round 1, first (eligible) combatant.
+  if (!(combat.round > 0)) {
+    const first = skipDefeated ? combatants.findIndex((c) => !c.defeated) : 0;
+    return { turn: first === -1 ? 0 : first, round: 1 };
   }
 
   const cur = combat.turn ?? 0;
@@ -90,11 +100,12 @@ export async function handleNextTurn(
   const skipDefeated = args?.skipDefeated ?? combat.settings?.skipDefeated ?? false;
 
   return withToolError('advance combat turn', async () => {
-    const { turn, round } = computeNextTurn(combat, skipDefeated);
+    const ctx = turnOrderContext(foundryClient.getWorld?.(), combat);
+    const { turn, round } = computeNextTurn(combat, skipDefeated, ctx);
     await foundryClient.updateCombat(combat._id, { turn, round });
 
-    const current = getTurnOrder(combat)[turn];
-    const currentName = current ? current.name : 'unknown';
+    const current = getTurnOrder(combat, ctx)[turn];
+    const currentName = current ? (ctx ? ctx.displayName(current) : current.name) : 'unknown';
 
     return {
       content: [
@@ -181,18 +192,24 @@ export async function handleSetInitiative(
   // Only the active combat is readable from the world-data cache, so only its
   // turn order can be recomputed. Capture who is acting BEFORE the write.
   const combat = activeCombat?._id === resolvedCombatId ? activeCombat : undefined;
-  const acting = combat ? getCurrentCombatant(combat) : undefined;
+  const ctx = combat ? turnOrderContext(foundryClient.getWorld?.(), combat) : undefined;
+  const acting = combat ? getCurrentCombatant(combat, ctx) : undefined;
 
   return withToolError('set combatant initiative', async () => {
     await foundryClient.setCombatantInitiative(resolvedCombatId, combatantId, initiative);
 
     let reanchored = '';
     if (combat && acting) {
-      const turn = turnIndexAfterInitiativeChange(combat, { combatantId, initiative }, acting._id);
+      const turn = turnIndexAfterInitiativeChange(
+        combat,
+        { combatantId, initiative },
+        acting._id,
+        ctx,
+      );
       if (turn !== undefined && turn !== combat.turn) {
         await foundryClient.updateCombat(resolvedCombatId, { turn });
         reanchored = `
-**Still acting:** ${acting.name} (turn ${turn + 1} of ${combat.combatants.length})`;
+**Still acting:** ${ctx ? ctx.displayName(acting) : acting.name} (turn ${turn + 1} of ${combat.combatants.length})`;
       }
     }
 
@@ -263,6 +280,14 @@ export async function handleStartCombat(
 
   return withToolError('start combat', async () => {
     const { combatId, combatantCount } = await foundryClient.startCombat(scene._id, seeds);
+    // Begin the encounter (round 1, turn 0) like Foundry's "Begin Combat",
+    // so next_turn / get_combat_state see a running combat. Best-effort.
+    let begun = true;
+    try {
+      await foundryClient.updateCombat(combatId, { round: 1, turn: 0 });
+    } catch {
+      begun = false;
+    }
 
     return {
       content: [
@@ -271,7 +296,8 @@ export async function handleStartCombat(
           text: `⚔️ **Combat Started**
 **Encounter:** ${combatId}
 **Scene:** ${scene.name} (${scene._id})
-**Combatants:** ${combatantCount}`,
+**Combatants:** ${combatantCount}
+**Round:** ${begun ? '1 (begun)' : '0 (not begun — use next_turn to begin)'}`,
         },
       ],
     };
