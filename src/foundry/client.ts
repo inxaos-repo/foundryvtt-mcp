@@ -1064,7 +1064,6 @@ export class FoundryClient {
     });
   }
 
-
   /** Whether FOUNDRY_WRITE_ENABLED is set. */
   isWriteEnabled(): boolean {
     return Boolean(this.config.writeEnabled);
