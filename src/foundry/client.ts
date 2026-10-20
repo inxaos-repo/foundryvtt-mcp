@@ -1021,7 +1021,40 @@ export class FoundryClient {
         `FoundryVTT rejected ${action} ${type}: ${response.error.message || 'unknown error'}`,
       );
     }
-    return Array.isArray(response?.result) ? response.result : [];
+    const result = Array.isArray(response?.result) ? response.result : [];
+    this.applyOwnWrite(type, action, operation, result);
+    return result;
+  }
+
+  /**
+   * Foundry acks the requester but only broadcasts a mutation to *other*
+   * sockets, so every write this client makes must be folded into the cached
+   * worldData here. Without it a bridge-issued `end_combat` (Combat delete)
+   * left the deleted encounter in `worldData.combats`, and combat_state /
+   * turn_context kept reporting a stale turn order until a restart.
+   * Application is idempotent (see world-cache.ts), so an echo is harmless.
+   */
+  private applyOwnWrite(
+    type: string,
+    action: 'create' | 'update' | 'delete',
+    operation: Record<string, unknown>,
+    result: unknown[],
+  ): void {
+    if (!this.worldData || result.length === 0) {
+      return;
+    }
+    try {
+      const parentUuid =
+        typeof operation.parentUuid === 'string' ? operation.parentUuid : undefined;
+      applyDocumentBroadcast(this.worldData, {
+        type,
+        action,
+        result: result as never,
+        ...(parentUuid ? { parentUuid } : {}),
+      } as never);
+    } catch (err) {
+      logger.debug('modifyDocument: cache apply failed', { type, action, err: String(err) });
+    }
   }
 
   // ==========================================================================
@@ -1138,20 +1171,6 @@ export class FoundryClient {
   ): Promise<unknown[]> {
     this.assertWriteable();
     const result = await this.modifyDocument(type, action, operation);
-    if (this.worldData && result.length) {
-      try {
-        const parentUuid =
-          typeof operation.parentUuid === 'string' ? operation.parentUuid : undefined;
-        applyDocumentBroadcast(this.worldData, {
-          type,
-          action,
-          result: result as never,
-          ...(parentUuid ? { parentUuid } : {}),
-        } as never);
-      } catch (err) {
-        logger.debug('gmModify: cache apply failed', { type, action, err: String(err) });
-      }
-    }
     return result;
   }
 
