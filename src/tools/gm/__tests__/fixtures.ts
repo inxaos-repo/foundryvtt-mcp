@@ -127,7 +127,6 @@ export function makeClient(w = makeWorld()) {
     gmGet: vi.fn(async () => []),
     gmEmit: vi.fn(async () => true),
     updateTokens: FoundryClient.prototype.updateTokens,
-    clearViewedScene: vi.fn(),
     waitForViewedScene: vi.fn(async (ids: string[]) => ids),
   } as unknown as FoundryClient;
   return { client, gmModify, w };
