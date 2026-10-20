@@ -1,9 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import type { FoundryClient } from '../../../foundry/client.js';
-import { findBlockingWalls, segmentsIntersect } from '../geometry.js';
+import { findBlockingWalls, findGridPath, segmentsIntersect } from '../geometry.js';
 import { ID, makeClient, makeWorld, run } from './fixtures.js';
 
 describe('geometry', () => {
+  it('findGridPath routes around a wall through a gap and refuses an enclosed goal', () => {
+    // A wall across the map with a one-square gap at the bottom.
+    const walls = [{ _id: 'w1', c: [300, 0, 300, 400], move: 20 }];
+    const bounds = { x: 0, y: 0, width: 600, height: 600 };
+    const path = findGridPath(walls, { x: 150, y: 150 }, { x: 450, y: 150 }, { size: 100, bounds });
+    expect(path).not.toBeNull();
+    expect(path?.points.length).toBeGreaterThan(2);
+    expect(path?.steps).toBeGreaterThanOrEqual(5);
+    const box = [
+      { _id: 'n', c: [400, 100, 500, 100], move: 20 },
+      { _id: 'e', c: [500, 100, 500, 200], move: 20 },
+      { _id: 's', c: [400, 200, 500, 200], move: 20 },
+      { _id: 'd', c: [400, 100, 400, 200], move: 20, door: 1, ds: 0 },
+    ];
+    expect(
+      findGridPath(box, { x: 150, y: 150 }, { x: 450, y: 150 }, { size: 100, bounds }),
+    ).toBeNull();
+    // Opening the door makes it reachable.
+    const open = box.map((w) => (w._id === 'd' ? { ...w, ds: 1 } : w));
+    expect(
+      findGridPath(open, { x: 150, y: 150 }, { x: 450, y: 150 }, { size: 100, bounds }),
+    ).not.toBeNull();
+  });
+
   it('detects crossings', () => {
     expect(
       segmentsIntersect({ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 10, y: 0 }),
@@ -22,6 +46,20 @@ describe('geometry', () => {
 });
 
 describe('scene tools', () => {
+  it('get_scene_full warns about player tokens on the default white icon', async () => {
+    const w = makeWorld();
+    const tok = (w.scenes[0] as { tokens: Array<Record<string, unknown>> }).tokens.find(
+      (t) => t._id === ID(61),
+    ) as Record<string, unknown>;
+    tok.texture = { src: 'icons/svg/mystery-man.svg' };
+    const { client } = makeClient(w);
+    const { text } = await run('get_scene_full', client, { sceneId: 'Dungeon', summary: true });
+    expect(text).toContain('default mystery-man icon');
+    tok.texture = { src: 'icons/svg/mystery-man.svg', tint: '#ff2020' };
+    const again = await run('get_scene_full', client, { sceneId: 'Dungeon', summary: true });
+    expect(again.text).not.toContain('mystery-man');
+  });
+
   it('get_scene_full reports doors, hidden tokens and darkness (no NaN)', async () => {
     const { client } = makeClient();
     const { text } = await run('get_scene_full', client, { sceneId: 'Dungeon' });
@@ -52,12 +90,13 @@ describe('scene tools', () => {
     return (client as unknown as { gmEmit: { mock: { calls: unknown[][] } } }).gmEmit.mock.calls;
   }
 
-  it('activate_scene activates an inactive scene and pulls non-GM players twice', async () => {
+  it('activate_scene activates an inactive scene and re-pulls players that do not confirm', async () => {
     vi.useFakeTimers();
     try {
       const w = makeWorld();
       (w.scenes[0] as { active: boolean }).active = false;
       const { client, gmModify } = makeClient(w);
+      (client.waitForViewedScene as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       const p = run('activate_scene', client, { sceneId: 'Dungeon' });
       await vi.runAllTimersAsync();
       const { text } = await p;
@@ -70,6 +109,7 @@ describe('scene tools', () => {
         ['pullToScene', ID(10), 'player0000000001', {}],
       ]);
       expect(text).toContain('pulled 1 user(s)');
+      expect(text).toContain('1 online but not confirmed');
     } finally {
       vi.useRealTimers();
     }
@@ -83,8 +123,10 @@ describe('scene tools', () => {
       await vi.runAllTimersAsync();
       const { text } = await p;
       expect(gmModify).not.toHaveBeenCalled();
-      expect(emitCalls(client)).toHaveLength(6);
+      // Three targets, one online; it confirms, so nobody is pulled twice.
+      expect(emitCalls(client)).toHaveLength(3);
       expect(text).toContain('Already active');
+      expect(text).toContain('1 confirmed on scene; 2 offline');
     } finally {
       vi.useRealTimers();
     }

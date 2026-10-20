@@ -34,6 +34,10 @@ no tool that evaluates arbitrary JavaScript. Every write requires
 - `gm_document` update accepts `data` or `updates` (an object or an array, each
   with `_id`), or a single object plus `id`.
 - `pullToScene` and `resetFog` have no acknowledgement; `showEntry` does.
+  `activate_scene` and `view_scene` instead wait for each online target's
+  client to report the scene through `userActivity` (re-pulling once), and
+  `reset_fog` reads the scene's FogExploration records back to confirm the
+  old ones are gone.
 
 ## System roll adapters
 
@@ -63,9 +67,13 @@ An adapter for Old-School Essentials (`ose`) is included.
 
 ## Limitations
 
-- `move_token_checked` tests the straight path between token centres against
-  movement-blocking walls and closed doors. It does not model one-way walls,
-  regions or line of sight.
+- `move_token_checked` searches a square-by-square route (8 directions, no
+  corner cutting) between token centres that avoids movement-blocking walls
+  and closed or locked doors, and moves the token along it. It treats the
+  token as a point and does not model one-way walls, regions, terrain or
+  line of sight.
+- `get_scene_full` warns about player tokens still on the default white
+  mystery-man icon, which is hard to see on light maps.
 - `set_condition` on an unlinked token writes to that token's ActorDelta (its
   own copy of the actor). A status inherited from the base actor cannot be
   removed per token; remove it from the actor instead.

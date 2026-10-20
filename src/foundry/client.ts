@@ -438,6 +438,10 @@ export class FoundryClient {
     }
   };
 
+  /** Latest scene id reported by each user's client via `userActivity`. */
+  private viewedScenes = new Map<string, string>();
+  private viewedSceneWaiters = new Set<() => void>();
+
   /**
    * Applies a FoundryVTT `userActivity` broadcast to cached presence (#218).
    *
@@ -451,6 +455,15 @@ export class FoundryClient {
    * Never throws: an unrecognized payload leaves presence as it was.
    */
   private onUserActivity = (userId: unknown, activityData?: unknown): void => {
+    // A client that finishes drawing a scene announces it with `sceneId`; keep
+    // the latest per user so scene pulls can be confirmed.
+    const viewed = (activityData as { sceneId?: unknown } | null | undefined)?.sceneId;
+    if (typeof userId === 'string' && typeof viewed === 'string') {
+      this.viewedScenes.set(userId, viewed);
+      for (const waiter of this.viewedSceneWaiters) {
+        waiter();
+      }
+    }
     if (!this.worldData) {
       return;
     }
@@ -1018,6 +1031,47 @@ export class FoundryClient {
   /** Live (cached) world payload, or null before the first world load. */
   getWorld(): WorldData | null {
     return this.worldData;
+  }
+
+  /** Scene id each user last reported viewing (from `userActivity`), if seen. */
+  getViewedScene(userId: string): string | undefined {
+    return this.viewedScenes.get(userId);
+  }
+
+  /**
+   * Wait until each of `userIds` reports viewing `sceneId`, or the timeout
+   * passes. Users without an open client never report, so callers should
+   * treat a missing confirmation as "not seen", not as a failure.
+   *
+   * @returns the user ids that confirmed
+   */
+  waitForViewedScene(userIds: string[], sceneId: string, timeoutMs: number): Promise<string[]> {
+    const confirmed = () => userIds.filter((id) => this.viewedScenes.get(id) === sceneId);
+    return new Promise((resolve) => {
+      const check = () => {
+        if (confirmed().length === userIds.length) {
+          finish();
+        }
+      };
+      const finish = () => {
+        clearTimeout(timer);
+        this.viewedSceneWaiters.delete(check);
+        resolve(confirmed());
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      this.viewedSceneWaiters.add(check);
+      check();
+    });
+  }
+
+  /**
+   * Forget recorded scene views for `userIds`, so a following
+   * {@link waitForViewedScene} only counts fresh reports.
+   */
+  clearViewedScene(userIds: string[]): void {
+    for (const id of userIds) {
+      this.viewedScenes.delete(id);
+    }
   }
 
   /** Whether FOUNDRY_WRITE_ENABLED is set. */
