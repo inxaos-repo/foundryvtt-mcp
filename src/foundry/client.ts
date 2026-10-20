@@ -924,6 +924,87 @@ export class FoundryClient {
   }
 
   // ==========================================================================
+  // GM toolkit primitives (generic document access + allow-listed socket events)
+  // ==========================================================================
+
+  /** Live (cached) world payload, or null before the first world load. */
+  getWorld(): WorldData | null {
+    return this.worldData;
+  }
+
+  /** Whether FOUNDRY_WRITE_ENABLED is set. */
+  isWriteEnabled(): boolean {
+    return Boolean(this.config.writeEnabled);
+  }
+
+  /**
+   * Generic WRITE through `modifyDocument`, gated by FOUNDRY_WRITE_ENABLED.
+   * Foundry acks the requester but only broadcasts to *other* sockets, so the
+   * result is applied to the world cache here to keep reads consistent.
+   */
+  async gmModify(
+    type: string,
+    action: 'create' | 'update' | 'delete',
+    operation: Record<string, unknown>,
+  ): Promise<unknown[]> {
+    this.assertWriteable();
+    const result = await this.modifyDocument(type, action, operation);
+    if (this.worldData && result.length) {
+      try {
+        const parentUuid =
+          typeof operation.parentUuid === 'string' ? operation.parentUuid : undefined;
+        applyDocumentBroadcast(this.worldData, {
+          type,
+          action,
+          result: result as never,
+          ...(parentUuid ? { parentUuid } : {}),
+        } as never);
+      } catch (err) {
+        logger.debug('gmModify: cache apply failed', { type, action, err: String(err) });
+      }
+    }
+    return result;
+  }
+
+  /** Generic READ (`modifyDocument` action `get`); never mutates. */
+  async gmGet(type: string, operation: Record<string, unknown>): Promise<unknown[]> {
+    const response = await this.emitWithAck<DocumentSocketResponse>('modifyDocument', {
+      type,
+      action: 'get',
+      operation: { query: {}, ...operation },
+    });
+    if (response?.error) {
+      throw new Error(`FoundryVTT rejected get ${type}: ${response.error.message || 'unknown'}`);
+    }
+    return Array.isArray(response?.result) ? response.result : [];
+  }
+
+  /**
+   * Emits one of a fixed allow-list of GM socket events (no arbitrary events,
+   * no code evaluation). Events the server acks are awaited; the rest are
+   * fire-and-forget: only `showEntry` takes an acknowledgement callback in v14.
+   * Always write-gated, since every one is visible to players.
+   */
+  async gmEmit(
+    event: 'pullToScene' | 'resetFog' | 'shareImage' | 'showEntry',
+    ...args: unknown[]
+  ): Promise<unknown> {
+    this.assertWriteable();
+    const socket = this.socket as Socket;
+    if (event === 'showEntry') {
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('Timeout waiting for showEntry')), 10000);
+        socket.emit(event, ...args, (r: unknown) => {
+          clearTimeout(t);
+          resolve(r);
+        });
+      });
+    }
+    socket.emit(event, ...args);
+    return true;
+  }
+
+  // ==========================================================================
   // Item mutation methods (WRITE — Socket.IO modifyDocument)
   // ==========================================================================
 
