@@ -54,9 +54,21 @@ const TOP_LEVEL_COLLECTIONS: Record<string, keyof WorldData> = {
 /** Parent document name → embedded document name → the parent's array field. */
 const EMBEDDED_COLLECTIONS: Record<string, Record<string, string>> = {
   Actor: { Item: 'items', ActiveEffect: 'effects' },
-  Scene: { Token: 'tokens', AmbientLight: 'lights', Wall: 'walls', Drawing: 'drawings' },
+  Scene: {
+    Token: 'tokens',
+    AmbientLight: 'lights',
+    Wall: 'walls',
+    Drawing: 'drawings',
+    Note: 'notes',
+    Tile: 'tiles',
+    AmbientSound: 'sounds',
+    Region: 'regions',
+  },
   Combat: { Combatant: 'combatants' },
   Item: { ActiveEffect: 'effects' },
+  JournalEntry: { JournalEntryPage: 'pages' },
+  Playlist: { PlaylistSound: 'sounds' },
+  RollTable: { TableResult: 'results' },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
