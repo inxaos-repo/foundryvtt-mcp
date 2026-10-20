@@ -66,4 +66,6 @@ An adapter for Old-School Essentials (`ose`) is included.
 - `move_token_checked` tests the straight path between token centres against
   movement-blocking walls and closed doors. It does not model one-way walls,
   regions or line of sight.
-- `set_condition` supports actors and linked tokens only.
+- `set_condition` on an unlinked token writes to that token's ActorDelta (its
+  own copy of the actor). A status inherited from the base actor cannot be
+  removed per token; remove it from the actor instead.

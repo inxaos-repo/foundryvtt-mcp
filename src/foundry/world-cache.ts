@@ -66,6 +66,7 @@ const EMBEDDED_COLLECTIONS: Record<string, Record<string, string>> = {
   },
   Combat: { Combatant: 'combatants' },
   Item: { ActiveEffect: 'effects' },
+  ActorDelta: { Item: 'items', ActiveEffect: 'effects' },
   JournalEntry: { JournalEntryPage: 'pages' },
   Playlist: { PlaylistSound: 'sounds' },
   RollTable: { TableResult: 'results' },
@@ -219,17 +220,36 @@ function applyToCollection(
 /**
  * Resolves the parent document a broadcast targets.
  *
- * Handles the simple `<Type>.<id>` form. The synthetic-token-actor form
- * (`Scene.<sid>.Token.<tid>.Actor.<aid>`, used for unlinked tokens) is **not**
- * resolved: that actor is a per-token delta rather than a document in any cached
- * collection, so those broadcasts are dropped and the affected token actor stays
- * stale until `refresh_world_data`.
+ * Handles the simple `<Type>.<id>` form and an unlinked token's delta
+ * (`Scene.<sid>.Token.<tid>.ActorDelta.<did>`), which is where the embedded
+ * documents of that token's synthetic actor live. The synthetic-actor form
+ * (`Scene.<sid>.Token.<tid>.Actor.<aid>`) is **not** resolved; those
+ * broadcasts are dropped and the token actor stays stale until
+ * `refresh_world_data`.
  */
 function resolveParent(
   worldData: WorldData,
   parentUuid: string,
 ): { parentType: string; parent: Record<string, unknown> } | null {
   const segments = parentUuid.split('.');
+  if (
+    segments.length === 6 &&
+    segments[0] === 'Scene' &&
+    segments[2] === 'Token' &&
+    segments[4] === 'ActorDelta'
+  ) {
+    const scene = worldData.scenes.find((x) => x._id === segments[1]) as
+      | { tokens?: Array<Record<string, unknown>> }
+      | undefined;
+    const token = scene?.tokens?.find((t) => t._id === segments[3]);
+    if (!token) {
+      return null;
+    }
+    if (!isRecord(token.delta)) {
+      token.delta = { _id: segments[5] };
+    }
+    return { parentType: 'ActorDelta', parent: token.delta as Record<string, unknown> };
+  }
   if (segments.length !== 2) {
     return null;
   }

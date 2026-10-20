@@ -263,7 +263,7 @@ describe('FoundryClient token mutations', () => {
     });
   });
 
-  it('createActorStatusEffect accepts the unlinked synthetic-actor UUID form', async () => {
+  it('createActorStatusEffect sends an unlinked token actor effect to its ActorDelta', async () => {
     const { client, emit } = buildClient({});
     const uuid = `Scene.${SCENE_ID}.Token.${TOKEN_ID}.Actor.${ACTOR_ID}`;
     await client.createActorStatusEffect(uuid, 'stunned', { name: 'Stunned', img: 'x.png' });
@@ -273,7 +273,8 @@ describe('FoundryClient token mutations', () => {
       action: 'create',
       operation: {
         data: [{ name: 'Stunned', statuses: ['stunned'], img: 'x.png' }],
-        parentUuid: uuid,
+        // Without cached scene data the delta id falls back to the token id.
+        parentUuid: `Scene.${SCENE_ID}.Token.${TOKEN_ID}.ActorDelta.${TOKEN_ID}`,
       },
     });
   });
