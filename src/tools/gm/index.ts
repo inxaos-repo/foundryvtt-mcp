@@ -5,11 +5,17 @@
  */
 import type { Tool } from '../base.js';
 import { chatTools } from './chat.js';
+import { combatTools } from './combat.js';
 import { documentTools } from './document.js';
 import { systemRollTools } from './system-roll.js';
 import { type GmToolSpec, toTool } from './tool-spec.js';
 
-export const gmToolSpecs: GmToolSpec[] = [...documentTools, ...chatTools, ...systemRollTools];
+export const gmToolSpecs: GmToolSpec[] = [
+  ...documentTools,
+  ...chatTools,
+  ...systemRollTools,
+  ...combatTools,
+];
 
 export const gmTools: Tool[] = gmToolSpecs.map(toTool);
 

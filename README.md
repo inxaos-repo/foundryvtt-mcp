@@ -175,6 +175,7 @@ Tools for running a session end to end. Writes require `FOUNDRY_WRITE_ENABLED=tr
 
 - **Documents:** `gm_document` — get/create/update/delete any document or embedded document
 - **Chat and dice:** `post_chat`, `read_chat`, `gm_roll`, `system_roll`
+- **Combat:** `start_encounter`, `roll_initiative`, `combat_control`, `get_turn_order`
 
 ### World
 
