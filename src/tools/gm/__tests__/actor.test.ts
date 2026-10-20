@@ -46,3 +46,22 @@ describe('actor state', () => {
     );
   });
 });
+
+describe('apply_damage defeated sync', () => {
+  it('marks the combatant defeated at 0 HP and adds dead status', async () => {
+    const { makeClient: mk, run: r, ID: id } = await import('./fixtures.js');
+    const { client, gmModify, w } = mk();
+    w.combats.push({
+      _id: 'combat0000000001',
+      combatants: [{ _id: 'cbt0000000000001', tokenId: id(60), actorId: id(2) }],
+    });
+    await r('apply_damage', client, { tokenId: id(60), amount: 99 });
+    const upd = gmModify.mock.calls.find((c) => c[0] === 'Combatant' && c[1] === 'update');
+    expect(
+      ((upd as unknown[])[2] as { updates: Array<{ defeated: boolean }> }).updates[0]?.defeated,
+    ).toBe(true);
+    expect(gmModify.mock.calls.some((c) => c[0] === 'ActiveEffect' && c[1] === 'create')).toBe(
+      true,
+    );
+  });
+});
