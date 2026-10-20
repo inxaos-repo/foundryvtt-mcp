@@ -14,13 +14,12 @@ import type { ToolContext } from './base.js';
 // Import legacy handlers for tools not yet converted
 import { handleGetActorDetails, handleSearchActors } from './handlers/actors.js';
 import {
-  handleDiagnoseErrors,
   handleGetHealthStatus,
   handleGetRecentLogs,
   handleGetSystemHealth,
   handleSearchLogs,
 } from './handlers/diagnostics.js';
-import { handleGenerateLoot, handleGenerateNPC, handleLookupRule } from './handlers/generation.js';
+import { handleGenerateLoot, handleGenerateNPC } from './handlers/generation.js';
 import { handleSearchItems } from './handlers/items.js';
 import { handleReadResource } from './handlers/resources.js';
 import { handleGetSceneInfo } from './handlers/scenes.js';
@@ -72,7 +71,7 @@ async function routeLegacyTool(
   args: Record<string, unknown>,
   foundryClient: FoundryClient,
   diagnosticsClient: DiagnosticsClient,
-  diagnosticSystem: DiagnosticSystem,
+  _diagnosticSystem: DiagnosticSystem,
 ) {
   switch (name) {
     // Actor tools
@@ -103,11 +102,6 @@ async function routeLegacyTool(
         args as { challengeRating?: number; treasureType?: string },
         foundryClient,
       );
-    case 'lookup_rule':
-      if (!('query' in args) || typeof args.query !== 'string') {
-        throw new Error('Missing required parameter: query');
-      }
-      return handleLookupRule(args as { query: string; system?: string }, foundryClient);
 
     // Diagnostics tools
     case 'get_recent_logs':
@@ -122,8 +116,6 @@ async function routeLegacyTool(
       );
     case 'get_system_health':
       return handleGetSystemHealth(args, diagnosticsClient);
-    case 'diagnose_errors':
-      return handleDiagnoseErrors(args as { category?: string }, diagnosticSystem);
     case 'get_health_status':
       return handleGetHealthStatus(args, foundryClient, diagnosticsClient);
 
