@@ -85,7 +85,8 @@ export const PULL_CONFIRM_MS = 2500;
  * previous canvas ignores a view request), then wait for confirmations.
  *
  * A client reports the scene it finished drawing through `userActivity`;
- * only users with an open client can confirm.
+ * only users with an open client can confirm. A client that already shows
+ * the scene does not redraw or report again, so its earlier report counts.
  */
 async function pullAndConfirm(
   client: FoundryClient,
@@ -98,7 +99,6 @@ async function pullAndConfirm(
   const active = new Set((world(client) as { activeUsers?: string[] }).activeUsers ?? []);
   const online = targets.filter((u) => active.has(u._id));
   const ids = online.map((u) => u._id);
-  client.clearViewedScene(ids);
   const pull = async (users: Array<{ _id: string }>) => {
     for (const u of users) {
       await client.gmEmit('pullToScene', sceneId, u._id, {});

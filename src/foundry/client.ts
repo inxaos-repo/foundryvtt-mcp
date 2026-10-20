@@ -1064,16 +1064,6 @@ export class FoundryClient {
     });
   }
 
-  /**
-   * Forget recorded scene views for `userIds`, so a following
-   * {@link waitForViewedScene} only counts fresh reports.
-   */
-  clearViewedScene(userIds: string[]): void {
-    for (const id of userIds) {
-      this.viewedScenes.delete(id);
-    }
-  }
-
   /** Whether FOUNDRY_WRITE_ENABLED is set. */
   isWriteEnabled(): boolean {
     return Boolean(this.config.writeEnabled);
