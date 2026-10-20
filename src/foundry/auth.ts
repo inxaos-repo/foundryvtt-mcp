@@ -179,6 +179,10 @@ export async function authenticateFoundry(
       headers: {
         'Content-Type': 'application/json',
         Cookie: `session=${session}`,
+        // FoundryVTT v14.369+ rejects POST /join without a same-origin Origin
+        // header (HTTP 400 "The request could not be processed.").
+        Origin: new URL(baseUrl).origin,
+        Referer: `${baseUrl}/join`,
       },
       // Accept 200 (success JSON), 302 (redirect to /game on success) and 401
       // (bad password). 401 carries FoundryVTT's own explanation in the body;
