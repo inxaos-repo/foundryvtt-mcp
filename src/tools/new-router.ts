@@ -14,7 +14,6 @@ import type { ToolContext } from './base.js';
 // Import legacy handlers for tools not yet converted
 import { handleGetActorDetails, handleSearchActors } from './handlers/actors.js';
 import {
-  handleDiagnoseErrors,
   handleGetHealthStatus,
   handleGetRecentLogs,
   handleGetSystemHealth,
@@ -117,8 +116,6 @@ async function routeLegacyTool(
       );
     case 'get_system_health':
       return handleGetSystemHealth(args, diagnosticsClient);
-    case 'diagnose_errors':
-      return handleDiagnoseErrors(args as { category?: string }, diagnosticSystem);
     case 'get_health_status':
       return handleGetHealthStatus(args, foundryClient, diagnosticsClient);
 

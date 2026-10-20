@@ -202,7 +202,6 @@ Tools for running a session end to end. Writes require `FOUNDRY_WRITE_ENABLED=tr
 - `search_logs` — search logs by pattern, listing the matching entries
 - `get_system_health` — server health status with versions, user/module counts, memory
   and log error counts (no CPU or disk metrics)
-- `diagnose_errors` — **stub**: returns a fixed "no errors detected" summary
 - `get_health_status` — comprehensive health diagnostics; flags the world snapshot when
   the cache has stopped following live changes
 

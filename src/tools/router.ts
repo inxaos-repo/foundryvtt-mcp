@@ -25,7 +25,6 @@ import {
 } from './handlers/combat-mutations.js';
 import { handleSearchCompendium } from './handlers/compendium.js';
 import {
-  handleDiagnoseErrors,
   handleGetHealthStatus,
   handleGetRecentLogs,
   handleGetSystemHealth,
@@ -307,8 +306,6 @@ export async function routeToolRequest(
       );
     case 'get_system_health':
       return handleGetSystemHealth(args, diagnosticsClient);
-    case 'diagnose_errors':
-      return handleDiagnoseErrors(args as { category?: string }, diagnosticSystem);
     case 'get_health_status':
       return handleGetHealthStatus(args, foundryClient, diagnosticsClient);
 
