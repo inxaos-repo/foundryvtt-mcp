@@ -35,7 +35,13 @@ describe('actor state', () => {
       'create',
       expect.objectContaining({
         parentUuid: `Scene.${ID(10)}.Token.${ID(60)}.ActorDelta.${ID(60)}`,
-        data: [expect.objectContaining({ statuses: ['prone'] })],
+        data: [
+          expect.objectContaining({
+            statuses: ['prone'],
+            img: 'icons/svg/falling.svg',
+            showIcon: 2,
+          }),
+        ],
       }),
     );
   });
