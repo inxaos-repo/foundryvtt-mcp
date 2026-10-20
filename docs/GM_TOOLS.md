@@ -139,7 +139,10 @@ the result. Compendium tables are not supported; import the table first.
   corner cutting) between token centres that avoids movement-blocking walls
   and closed or locked doors, and moves the token along it. It treats the
   token as a point and does not model one-way walls, regions, terrain or
-  line of sight.
+  line of sight. With `openDoors=true` it may route through closed, unlocked
+  doors (only when no door-free route exists) and opens them first; locked
+  and secret doors need `forceDoors=true`. Route corners are sent as
+  explicit waypoints so players' clients animate the walk along the route.
 - `get_scene_full` warns about player tokens still on the default white
   mystery-man icon, which is hard to see on light maps.
 - `set_condition` on an unlinked token writes to that token's ActorDelta (its
