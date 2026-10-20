@@ -1,10 +1,9 @@
 /**
- * GM toolkit — documents, scenes, tokens, doors, fog, lights.
+ * Scene, token, door, fog and lighting tools.
  */
 
 import type { FoundryClient } from '../../foundry/client.js';
 import { sceneDarkness, sceneGlobalLight } from '../../foundry/client.js';
-import type { Tool, ToolContext, ToolResult } from '../base.js';
 import {
   DOOR_STATE_VALUES,
   DOOR_TYPES,
@@ -31,6 +30,7 @@ import {
   strList,
   world,
 } from './helpers.js';
+import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 
 /** Delay before re-sending pullToScene, in ms. */
 export const PULL_RETRY_MS = 1500;
@@ -51,60 +51,6 @@ function pullTargets(
   }>;
   return users.filter((u) => includeGMs || (u.role ?? 0) < 3);
 }
-
-export const WRITE_NOTE = ' Requires FOUNDRY_WRITE_ENABLED=true.';
-
-export interface GmToolSpec {
-  name: string;
-  description: string;
-  inputSchema: Obj;
-  run: (client: FoundryClient, args: Obj) => Promise<ToolResult>;
-}
-
-export function toTool(spec: GmToolSpec): Tool {
-  return {
-    name: spec.name,
-    description: spec.description,
-    inputSchema: spec.inputSchema,
-    async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
-      try {
-        return await spec.run(ctx.foundryClient, (args ?? {}) as Obj);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: 'text', text: `❌ ${spec.name}: ${message}` }], isError: true };
-      }
-    },
-  };
-}
-
-/** Document types gm_document may touch, with their parent (if embedded). */
-export const DOCUMENT_TYPES: Record<string, { parent?: string[] }> = {
-  Scene: {},
-  Actor: {},
-  Item: { parent: ['Actor'] },
-  JournalEntry: {},
-  JournalEntryPage: { parent: ['JournalEntry'] },
-  RollTable: {},
-  TableResult: { parent: ['RollTable'] },
-  Combat: {},
-  Combatant: { parent: ['Combat'] },
-  ChatMessage: {},
-  Playlist: {},
-  PlaylistSound: { parent: ['Playlist'] },
-  Folder: {},
-  Macro: {},
-  Token: { parent: ['Scene'] },
-  Wall: { parent: ['Scene'] },
-  AmbientLight: { parent: ['Scene'] },
-  AmbientSound: { parent: ['Scene'] },
-  Note: { parent: ['Scene'] },
-  Tile: { parent: ['Scene'] },
-  Drawing: { parent: ['Scene'] },
-  Region: { parent: ['Scene'] },
-  MeasuredTemplate: { parent: ['Scene'] },
-  ActiveEffect: { parent: ['Actor', 'Item'] },
-  FogExploration: {},
-};
 
 const sceneIdProp = {
   sceneId: { type: 'string', description: 'Scene id or name (default: the active scene)' },
@@ -153,101 +99,6 @@ function summarizeWall(wl: WallLike): Obj {
 }
 
 export const sceneTools: GmToolSpec[] = [
-  {
-    name: 'gm_document',
-    description:
-      'Generic create/update/delete/get for any Foundry document or embedded document (Scene, Token, Wall, AmbientLight, AmbientSound, Note, Tile, Drawing, Region, Actor, Item, ActiveEffect, JournalEntry, JournalEntryPage, RollTable, Combat, Combatant, ChatMessage, Playlist, PlaylistSound…). Use the specific tools first; this is the escape hatch. Embedded types need parentType+parentId. update needs data objects with _id; delete needs ids. Writes require FOUNDRY_WRITE_ENABLED=true.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['get', 'create', 'update', 'delete'] },
-        documentType: { type: 'string', enum: Object.keys(DOCUMENT_TYPES) },
-        parentType: {
-          type: 'string',
-          description: 'Parent document type for embedded docs (Scene, Actor, Combat…)',
-        },
-        parentId: { type: 'string', description: 'Parent document id for embedded docs' },
-        data: {
-          description:
-            'create: object or array of objects; update: object(s) each with _id (dot-notation keys allowed)',
-          oneOf: [{ type: 'object' }, { type: 'array', items: { type: 'object' } }],
-        },
-        ids: { type: 'array', items: { type: 'string' }, description: 'delete: ids to delete' },
-        query: {
-          type: 'object',
-          description: 'get: field filter, e.g. {"_id":"..."} or {"scene":"..."}',
-        },
-        pack: {
-          type: 'string',
-          description: 'get: compendium pack id to read from instead of the world',
-        },
-      },
-      required: ['action', 'documentType'],
-    },
-    async run(client, args) {
-      const action = str(args, 'action') as 'get' | 'create' | 'update' | 'delete';
-      const type = str(args, 'documentType') as string;
-      const spec = DOCUMENT_TYPES[type];
-      if (!spec) {
-        throw new GmToolError(`Unsupported documentType ${type}`);
-      }
-      const parentType = str(args, 'parentType', false);
-      const parentId = str(args, 'parentId', false);
-      let parentUuid: string | undefined;
-      if (spec.parent) {
-        if (!parentType || !parentId) {
-          throw new GmToolError(
-            `${type} is embedded: pass parentType (${spec.parent.join('|')}) and parentId`,
-          );
-        }
-        if (!spec.parent.includes(parentType)) {
-          throw new GmToolError(`${type} parent must be ${spec.parent.join(' or ')}`);
-        }
-        parentUuid = `${parentType}.${parentId}`;
-      }
-      const base: Obj = parentUuid ? { parentUuid } : {};
-      if (action === 'get') {
-        const pack = str(args, 'pack', false);
-        const query = (args.query as Obj) ?? {};
-        let res = (await client.gmGet(type, {
-          ...base,
-          query,
-          ...(pack ? { pack } : {}),
-        })) as Obj[];
-        // Foundry ignores the query for embedded gets — filter here.
-        if (parentUuid) {
-          res = res.filter((d) => Object.entries(query).every(([k, v]) => d[k] === v));
-        }
-        return ok(`📄 ${res.length} ${type} document(s)`, res.slice(0, 50));
-      }
-      if (action === 'delete') {
-        const ids = strList(args, 'ids');
-        if (!ids.length) {
-          throw new GmToolError('delete needs ids');
-        }
-        const res = await client.gmModify(type, 'delete', { ...base, ids });
-        return ok(`🗑️ Deleted ${res.length} ${type}`, res);
-      }
-      const raw = args.data;
-      const list = (Array.isArray(raw) ? raw : raw ? [raw] : []) as Obj[];
-      if (!list.length) {
-        throw new GmToolError(`${action} needs data`);
-      }
-      if (action === 'create') {
-        const res = (await client.gmModify(type, 'create', { ...base, data: list })) as Obj[];
-        return ok(
-          `✅ Created ${res.length} ${type}: ${res.map((r) => `${r.name ?? ''} (${r._id})`).join(', ')}`,
-          res.map((r) => ({ _id: r._id, name: r.name })),
-        );
-      }
-      if (!list.every((d) => typeof d._id === 'string')) {
-        throw new GmToolError('update data objects must each include _id');
-      }
-      const res = await client.gmModify(type, 'update', { ...base, updates: list, diff: true });
-      return ok(`✏️ Updated ${res.length} ${type}`, res);
-    },
-  },
-
   {
     name: 'duplicate_scene',
     description:
@@ -299,7 +150,6 @@ export const sceneTools: GmToolSpec[] = [
       });
     },
   },
-
   {
     name: 'activate_scene',
     description:
@@ -354,7 +204,6 @@ export const sceneTools: GmToolSpec[] = [
       );
     },
   },
-
   {
     name: 'view_scene',
     description:
@@ -388,7 +237,6 @@ export const sceneTools: GmToolSpec[] = [
       );
     },
   },
-
   {
     name: 'get_scene_full',
     description:
@@ -523,7 +371,37 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`🗺️ ${s.name}`, out);
     },
   },
-
+  {
+    name: 'set_scene_darkness',
+    description:
+      'Set scene darkness 0 (daylight) to 1 (pitch dark) for time of day; optionally toggle global illumination.' +
+      WRITE_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...sceneIdProp,
+        darkness: { type: 'number', minimum: 0, maximum: 1 },
+        globalLight: { type: 'boolean' },
+      },
+      required: ['darkness'],
+    },
+    async run(client, args) {
+      const scene = getScene(client, str(args, 'sceneId', false));
+      const d = num(args, 'darkness') as number;
+      if (d < 0 || d > 1) {
+        throw new GmToolError('darkness must be between 0 and 1');
+      }
+      const upd: Obj = { _id: scene._id, 'environment.darknessLevel': d };
+      const gl = bool(args, 'globalLight');
+      if (gl !== undefined) {
+        upd['environment.globalLight.enabled'] = gl;
+      }
+      await client.gmModify('Scene', 'update', { updates: [upd] });
+      return ok(
+        `🌗 "${scene.name}" darkness ${Math.round(d * 100)}%${gl !== undefined ? `, global light ${gl ? 'on' : 'off'}` : ''}`,
+      );
+    },
+  },
   {
     name: 'create_token',
     description:
@@ -582,7 +460,6 @@ export const sceneTools: GmToolSpec[] = [
       );
     },
   },
-
   {
     name: 'set_token_hidden',
     description: `Hide tokens from players or reveal them (e.g. reveal a monster).${WRITE_NOTE}`,
@@ -610,7 +487,6 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`${hidden ? '🙈 Hid' : '👀 Revealed'}: ${names.join(', ')}`);
     },
   },
-
   {
     name: 'set_token_vision',
     description: `Turn a token's sight on/off and optionally set its range (grid units).${WRITE_NOTE}`,
@@ -641,7 +517,6 @@ export const sceneTools: GmToolSpec[] = [
       );
     },
   },
-
   {
     name: 'delete_token',
     description: `Remove tokens from a scene (the actor is kept).${WRITE_NOTE}`,
@@ -664,7 +539,6 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`🗑️ Deleted ${n} token(s)`);
     },
   },
-
   {
     name: 'move_token_checked',
     description:
@@ -725,7 +599,6 @@ export const sceneTools: GmToolSpec[] = [
       );
     },
   },
-
   {
     name: 'list_doors',
     description:
@@ -744,7 +617,6 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`🚪 ${doors.length} door(s) on "${scene.name}"`, doors);
     },
   },
-
   {
     name: 'set_door_state',
     description: `Open, close or lock a door wall. Fails if the wall is not a door.${WRITE_NOTE}`,
@@ -787,7 +659,6 @@ export const sceneTools: GmToolSpec[] = [
       throw new GmToolError(`Wall ${wallId} not found`);
     },
   },
-
   {
     name: 'reset_fog',
     description: `Reset fog of war exploration for everyone on a scene.${WRITE_NOTE}`,
@@ -798,7 +669,6 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`🌫️ Fog reset on "${scene.name}"`);
     },
   },
-
   {
     name: 'get_fog_state',
     description:
@@ -817,7 +687,6 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`🌫️ ${rows.length} fog exploration record(s) on "${scene.name}"`, rows);
     },
   },
-
   {
     name: 'set_light_state',
     description: `Turn ambient lights on or off on a scene.${WRITE_NOTE}`,
@@ -841,39 +710,6 @@ export const sceneTools: GmToolSpec[] = [
       return ok(`💡 ${res.length} light(s) ${on ? 'on' : 'off'} on "${scene.name}"`);
     },
   },
-
-  {
-    name: 'set_scene_darkness',
-    description:
-      'Set scene darkness 0 (daylight) to 1 (pitch dark) for time of day; optionally toggle global illumination.' +
-      WRITE_NOTE,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ...sceneIdProp,
-        darkness: { type: 'number', minimum: 0, maximum: 1 },
-        globalLight: { type: 'boolean' },
-      },
-      required: ['darkness'],
-    },
-    async run(client, args) {
-      const scene = getScene(client, str(args, 'sceneId', false));
-      const d = num(args, 'darkness') as number;
-      if (d < 0 || d > 1) {
-        throw new GmToolError('darkness must be between 0 and 1');
-      }
-      const upd: Obj = { _id: scene._id, 'environment.darknessLevel': d };
-      const gl = bool(args, 'globalLight');
-      if (gl !== undefined) {
-        upd['environment.globalLight.enabled'] = gl;
-      }
-      await client.gmModify('Scene', 'update', { updates: [upd] });
-      return ok(
-        `🌗 "${scene.name}" darkness ${Math.round(d * 100)}%${gl !== undefined ? `, global light ${gl ? 'on' : 'off'}` : ''}`,
-      );
-    },
-  },
-
   {
     name: 'get_note_page',
     description: 'Read the journal entry/page linked from a map note (pin) as plain text.',

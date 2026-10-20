@@ -170,6 +170,19 @@ needs GM/owner permission. Set `FOUNDRY_WRITE_ENABLED=true` to enable them.
 - `create_journal_entry` — create a journal entry with one or more text pages
   (GM-only by default; pass `visibility` to let players read it)
 
+### GM Toolkit
+
+Tools for running a session end to end. Writes require `FOUNDRY_WRITE_ENABLED=true`; there is no code-evaluation tool. See [docs/GM_TOOLS.md](docs/GM_TOOLS.md).
+
+- **Documents:** `gm_document` — get/create/update/delete any document or embedded document
+- **Scenes:** `duplicate_scene`, `activate_scene`, `view_scene`, `get_scene_full`, `set_scene_darkness`
+- **Tokens:** `create_token`, `set_token_hidden`, `set_token_vision`, `delete_token`, `move_token_checked`
+- **Doors, fog, lights:** `list_doors`, `set_door_state`, `reset_fog`, `get_fog_state`, `set_light_state`, `get_note_page`
+- **Chat and dice:** `post_chat`, `read_chat`, `gm_roll`, `system_roll` (per-system adapters)
+- **Combat:** `start_encounter`, `roll_initiative`, `combat_control`, `get_turn_order`
+- **Actors:** `apply_damage`, `set_condition`, `adjust_item_quantity`
+- **Presentation and party:** `share_journal`, `control_audio`, `list_party`, `import_from_compendium`
+
 ### World
 
 - `search_world` — full-text search across all game entities
@@ -183,7 +196,7 @@ needs GM/owner permission. Set `FOUNDRY_WRITE_ENABLED=true` to enable them.
   unsupported notation (`4d6kh3`, `1d20r1`, `*`) rejected rather than dropped.
   Parentheses are the one transport difference: FoundryVTT evaluates them when
   `FOUNDRY_API_KEY` is set, the local roller rejects them otherwise
-- `lookup_rule` — **stub**: returns a templated placeholder, consults no rules source
+- `lookup_rule` — search world journals and JournalEntry compendium packs for rules text
 
 ### Content Generation
 
@@ -196,7 +209,6 @@ needs GM/owner permission. Set `FOUNDRY_WRITE_ENABLED=true` to enable them.
 - `search_logs` — search logs by pattern, listing the matching entries
 - `get_system_health` — server health status with versions, user/module counts, memory
   and log error counts (no CPU or disk metrics)
-- `diagnose_errors` — **stub**: returns a fixed "no errors detected" summary
 - `get_health_status` — comprehensive health diagnostics; flags the world snapshot when
   the cache has stopped following live changes
 

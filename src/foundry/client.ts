@@ -996,7 +996,7 @@ export class FoundryClient {
     return this.worldData;
   }
 
-  /** True when write tools may run (FOUNDRY_WRITE_ENABLED and a live socket). */
+  /** Whether FOUNDRY_WRITE_ENABLED is set. */
   isWriteEnabled(): boolean {
     return Boolean(this.config.writeEnabled);
   }
@@ -1046,7 +1046,8 @@ export class FoundryClient {
   /**
    * Emits one of a fixed allow-list of GM socket events (no arbitrary events,
    * no code evaluation). Events the server acks are awaited; the rest are
-   * fire-and-forget. Always write-gated: every one is visible to players.
+   * fire-and-forget: only `showEntry` takes an acknowledgement callback in v14.
+   * Always write-gated, since every one is visible to players.
    */
   async gmEmit(
     event: 'pullToScene' | 'resetFog' | 'shareImage' | 'showEntry',
@@ -1908,7 +1909,11 @@ function worldActorToFoundry(a: WorldActor): FoundryActor {
   return actor;
 }
 
-/** Darkness 0..1; v12+ moved it to `environment.darknessLevel` (v14: NaN bug). */
+/**
+ * Scene darkness in 0..1. Since v12 the value lives at
+ * `environment.darknessLevel`; the top-level `darkness` field is absent, which
+ * previously rendered as "NaN%".
+ */
 export function sceneDarkness(s: Record<string, unknown> | WorldScene): number {
   const env = (s as { environment?: { darknessLevel?: unknown } }).environment;
   const v = env?.darknessLevel ?? (s as { darkness?: unknown }).darkness;

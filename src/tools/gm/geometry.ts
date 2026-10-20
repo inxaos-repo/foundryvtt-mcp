@@ -91,7 +91,7 @@ export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boole
   return false;
 }
 
-/** First wall (in list order) blocking straight movement from → to, or null. */
+/** Walls that block straight-line movement between two points (empty when clear). */
 export function findBlockingWalls(walls: WallLike[], from: Point, to: Point): WallLike[] {
   return walls.filter((w) => {
     if (!Array.isArray(w.c) || w.c.length < 4 || !blocksMovement(w)) {
