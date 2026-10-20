@@ -1764,6 +1764,24 @@ function worldActorToFoundry(a: WorldActor): FoundryActor {
   return actor;
 }
 
+/**
+ * Scene darkness in 0..1. Since v12 the value lives at
+ * `environment.darknessLevel`; the top-level `darkness` field is absent, which
+ * previously rendered as "NaN%".
+ */
+export function sceneDarkness(s: Record<string, unknown> | WorldScene): number {
+  const env = (s as { environment?: { darknessLevel?: unknown } }).environment;
+  const v = env?.darknessLevel ?? (s as { darkness?: unknown }).darkness;
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+/** Global illumination flag; v12+ stores it at `environment.globalLight.enabled`. */
+export function sceneGlobalLight(s: Record<string, unknown> | WorldScene): boolean {
+  const env = (s as { environment?: { globalLight?: { enabled?: unknown } } }).environment;
+  const v = env?.globalLight?.enabled ?? (s as { globalLight?: unknown }).globalLight;
+  return Boolean(v);
+}
+
 function worldSceneToFoundry(s: WorldScene): FoundryScene {
   const scene: FoundryScene = {
     _id: s._id,
@@ -1775,8 +1793,8 @@ function worldSceneToFoundry(s: WorldScene): FoundryScene {
     padding: s.padding,
     shiftX: 0,
     shiftY: 0,
-    globalLight: s.globalLight,
-    darkness: s.darkness,
+    globalLight: sceneGlobalLight(s),
+    darkness: sceneDarkness(s),
   };
   if (s.img) {
     scene.img = s.img;
