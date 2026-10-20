@@ -26,6 +26,42 @@ import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 
 const HP_PATHS = ['system.hp', 'system.attributes.hp'];
 
+/** Icons of Foundry's core CONFIG.statusEffects, used when no icon is given. */
+export const CORE_STATUS_ICONS: Record<string, string> = Object.fromEntries(
+  Object.entries({
+    dead: 'skull',
+    unconscious: 'unconscious',
+    sleep: 'sleep',
+    stun: 'daze',
+    prone: 'falling',
+    restrain: 'net',
+    paralysis: 'paralysis',
+    fly: 'wing',
+    blind: 'blind',
+    deaf: 'deaf',
+    silence: 'silenced',
+    fear: 'terror',
+    burning: 'fire',
+    frozen: 'frozen',
+    shock: 'lightning',
+    corrode: 'acid',
+    bleeding: 'blood',
+    disease: 'biohazard',
+    poison: 'poison',
+    curse: 'sun',
+    regen: 'regen',
+    degen: 'degen',
+    hover: 'wingfoot',
+    burrow: 'mole',
+    upgrade: 'upgrade',
+    downgrade: 'downgrade',
+    invisible: 'invisible',
+    target: 'target',
+    eye: 'eye',
+    bless: 'angel',
+  }).map(([id, f]) => [id, `icons/svg/${f}.svg`]),
+);
+
 type Target = ReturnType<typeof resolveTarget>;
 
 function conditionSlug(i: Obj): string {
@@ -263,8 +299,12 @@ export const actorTools: GmToolSpec[] = [
           data: [
             {
               name: str(args, 'label', false) ?? statusId,
-              img: str(args, 'icon', false) ?? 'icons/svg/aura.svg',
+              img: str(args, 'icon', false) ?? CORE_STATUS_ICONS[statusId] ?? 'icons/svg/aura.svg',
               statuses: [statusId],
+              // Without a duration Foundry treats the effect as permanent and
+              // CONDITIONAL (the default) hides it from the token; status
+              // conditions should always show on the token.
+              showIcon: 2,
             },
           ],
         });
