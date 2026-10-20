@@ -1,3 +1,5 @@
+import { gmToolDefinitions } from './gm/index.js';
+
 /**
  * @fileoverview Tool definitions for FoundryVTT MCP Server
  *
@@ -868,6 +870,8 @@ export function getAllTools() {
     ...worldTools,
     ...generationTools,
     ...diagnosticsTools,
+
+    ...gmToolDefinitions,
   ];
 }
 
