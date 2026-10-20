@@ -7,6 +7,7 @@
 
 import { logger } from '../utils/logger.js';
 import type { Tool, ToolContext, ToolResult } from './base.js';
+import { gmTools } from './gm/index.js';
 import { RollDiceTool } from './handlers/dice.js';
 
 /**
@@ -90,6 +91,9 @@ export class ToolRegistry {
   private registerDefaultTools(): void {
     // Register the dice tool (converted to new system)
     this.register(new RollDiceTool());
+    for (const tool of gmTools) {
+      this.register(tool);
+    }
 
     // TODO: Register other tools as they are converted
     logger.info(`Registered ${this.tools.size} tools`);
