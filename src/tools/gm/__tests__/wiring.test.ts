@@ -23,6 +23,9 @@ describe('gm toolkit wiring', () => {
   it('every write tool mentions the write guard', () => {
     const readOnly = new Set([
       'get_scene_full',
+      'tokens_near',
+      'token_for_actor',
+      'turn_context',
       'list_doors',
       'get_fog_state',
       'get_note_page',
