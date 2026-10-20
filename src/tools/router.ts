@@ -29,7 +29,6 @@ import {
   handleSearchCompendium,
 } from './handlers/compendium.js';
 import {
-  handleDiagnoseErrors,
   handleGetHealthStatus,
   handleGetRecentLogs,
   handleGetSystemHealth,
@@ -37,7 +36,7 @@ import {
 } from './handlers/diagnostics.js';
 // Import all tool handlers
 import { handleRollDice } from './handlers/dice.js';
-import { handleGenerateLoot, handleGenerateNPC, handleLookupRule } from './handlers/generation.js';
+import { handleGenerateLoot, handleGenerateNPC } from './handlers/generation.js';
 import {
   handleCreateActorItem,
   handleDeleteActorItem,
@@ -301,11 +300,6 @@ export async function routeToolRequest(
         args as { challengeRating?: number; treasureType?: string },
         foundryClient,
       );
-    case 'lookup_rule':
-      if (!('query' in args) || typeof args.query !== 'string') {
-        throw new Error('Missing required parameter: query');
-      }
-      return handleLookupRule(args as { query: string; system?: string }, foundryClient);
 
     // Diagnostics tools (require REST API module)
     case 'get_recent_logs':
@@ -320,8 +314,6 @@ export async function routeToolRequest(
       );
     case 'get_system_health':
       return handleGetSystemHealth(args, diagnosticsClient);
-    case 'diagnose_errors':
-      return handleDiagnoseErrors(args as { category?: string }, diagnosticSystem);
     case 'get_health_status':
       return handleGetHealthStatus(args, foundryClient, diagnosticsClient);
 

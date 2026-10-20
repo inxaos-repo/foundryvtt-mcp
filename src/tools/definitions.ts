@@ -1,3 +1,5 @@
+import { gmToolDefinitions } from './gm/index.js';
+
 /**
  * @fileoverview Tool definitions for FoundryVTT MCP Server
  *
@@ -423,25 +425,6 @@ export const generationTools = [
       },
     },
   },
-  {
-    name: 'lookup_rule',
-    description:
-      'Stub: builds a templated placeholder from the query and consults no rules source, so the text it returns carries no rules content. No tool in this server looks rules up.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Rule or mechanic to look up',
-        },
-        system: {
-          type: 'string',
-          description: 'Game system (D&D 5e, Pathfinder, etc.)',
-        },
-      },
-      required: ['query'],
-    },
-  },
 ];
 
 /**
@@ -507,20 +490,6 @@ export const diagnosticsTools = [
     inputSchema: {
       type: 'object',
       properties: {},
-    },
-  },
-  {
-    name: 'diagnose_errors',
-    description:
-      'Stub: returns a fixed "no errors detected" summary regardless of input; real diagnostic logic is not implemented, so the summary reflects nothing about the server. For actual log content use get_recent_logs.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        category: {
-          type: 'string',
-          description: 'Error category to focus on',
-        },
-      },
     },
   },
   {
@@ -896,6 +865,7 @@ export function getAllTools() {
     ...worldTools,
     ...generationTools,
     ...diagnosticsTools,
+    ...gmToolDefinitions,
   ];
 }
 

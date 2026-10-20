@@ -31,9 +31,9 @@ export async function handleGetSceneInfo(
 **Active:** ${scene.active ? 'Yes' : 'No'}
 **Navigation:** ${scene.navigation ? 'Enabled' : 'Disabled'}
 **Dimensions:** ${scene.width} x ${scene.height} pixels
-**Padding:** ${scene.padding * 100}%
+**Padding:** ${Math.round((scene.padding ?? 0) * 100)}%
 **Global Light:** ${scene.globalLight ? 'Enabled' : 'Disabled'}
-**Darkness Level:** ${scene.darkness * 100}%
+**Darkness Level:** ${Math.round((Number.isFinite(scene.darkness) ? scene.darkness : 0) * 100)}%
 
 **Description:** ${scene.description || 'No description available.'}`,
         },
