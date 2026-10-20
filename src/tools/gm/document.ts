@@ -1,5 +1,51 @@
-import { GmToolError, type Obj, ok, str, strList } from './helpers.js';
+import type { FoundryClient } from '../../foundry/client.js';
+import { GmToolError, type Obj, ok, str, strList, world } from './helpers.js';
 import type { GmToolSpec } from './tool-spec.js';
+
+/**
+ * Whether gm_document may create or edit script macros. Script macros run
+ * arbitrary JavaScript in every client that executes them, so this is off unless
+ * FOUNDRY_ALLOW_SCRIPT_MACROS=true. Chat macros are always allowed.
+ */
+export function scriptMacrosAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return String(env.FOUNDRY_ALLOW_SCRIPT_MACROS ?? '').toLowerCase() === 'true';
+}
+
+const SCRIPT_MACRO_REFUSAL =
+  'Script macros are disabled on this server (set FOUNDRY_ALLOW_SCRIPT_MACROS=true to allow). Chat macros are always allowed.';
+
+async function existingMacroType(client: FoundryClient, id: string): Promise<string | undefined> {
+  const cached = ((world(client).macros ?? []) as Obj[]).find((m) => m._id === id);
+  if (cached) {
+    return typeof cached.type === 'string' ? cached.type : 'chat';
+  }
+  const res = (await client.gmGet('Macro', { query: { _id: id } })) as Obj[];
+  const found = Array.isArray(res) ? res.find((m) => m._id === id) : undefined;
+  return found ? (typeof found.type === 'string' ? found.type : 'chat') : undefined;
+}
+
+/** Throws when a Macro create/update would produce or edit a script macro. */
+export async function guardScriptMacros(
+  client: FoundryClient,
+  action: 'create' | 'update',
+  list: Obj[],
+): Promise<void> {
+  if (scriptMacrosAllowed()) {
+    return;
+  }
+  for (const d of list) {
+    if (d.type === 'script') {
+      throw new GmToolError(SCRIPT_MACRO_REFUSAL);
+    }
+    if (action === 'update' && ('command' in d || 'type' in d)) {
+      const current = await existingMacroType(client, String(d._id));
+      // Unknown macros fail closed: we cannot prove they are not scripts.
+      if (current === undefined || current === 'script') {
+        throw new GmToolError(SCRIPT_MACRO_REFUSAL);
+      }
+    }
+  }
+}
 
 /** Document types gm_document may touch, with their parent (if embedded). */
 export const DOCUMENT_TYPES: Record<string, { parent?: string[] }> = {
@@ -34,7 +80,7 @@ export const documentTools: GmToolSpec[] = [
   {
     name: 'gm_document',
     description:
-      'Generic create/update/delete/get for any Foundry document or embedded document (Scene, Token, Wall, AmbientLight, AmbientSound, Note, Tile, Drawing, Region, Actor, Item, ActiveEffect, JournalEntry, JournalEntryPage, RollTable, Combat, Combatant, ChatMessage, Playlist, PlaylistSound…). Use the specific tools first; this is the escape hatch. Embedded types need parentType+parentId. update takes data (or its alias updates): object(s) each with _id, or a single object plus id; delete needs ids. Writes require FOUNDRY_WRITE_ENABLED=true.',
+      'Generic create/update/delete/get for any Foundry document or embedded document (Scene, Token, Wall, AmbientLight, AmbientSound, Note, Tile, Drawing, Region, Actor, Item, ActiveEffect, JournalEntry, JournalEntryPage, RollTable, Combat, Combatant, ChatMessage, Playlist, PlaylistSound…). Use the specific tools first; this is the escape hatch. Embedded types need parentType+parentId. update takes data (or its alias updates): object(s) each with _id, or a single object plus id; delete needs ids. Writes require FOUNDRY_WRITE_ENABLED=true. Creating or editing script macros (Macro type "script") additionally requires FOUNDRY_ALLOW_SCRIPT_MACROS=true; chat macros are always allowed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -129,6 +175,12 @@ export const documentTools: GmToolSpec[] = [
       const id = str(args, 'id', false);
       if (action === 'update' && id && list.length === 1 && list[0]?._id === undefined) {
         list = [{ ...(list[0] as Obj), _id: id }];
+      }
+      if (type === 'Macro' && !parentUuid) {
+        if (action === 'update' && !list.every((d) => typeof d._id === 'string')) {
+          throw new GmToolError('update data objects must each include _id');
+        }
+        await guardScriptMacros(client, action, list);
       }
       if (action === 'create') {
         const res = (await client.gmModify(type, 'create', { ...base, data: list })) as Obj[];

@@ -6,6 +6,15 @@ socket (`modifyDocument`) plus a fixed allow-list of socket events
 no tool that evaluates arbitrary JavaScript. Every write requires
 `FOUNDRY_WRITE_ENABLED=true`.
 
+Script macros are a second, separate opt-in. Foundry runs a script macro's
+JavaScript in the client of whoever executes it, so with
+`FOUNDRY_ALLOW_SCRIPT_MACROS` unset or `false` (the default) `gm_document`
+refuses to create a `Macro` of type `script`, to change a macro's type to
+`script`, or to change the `command` or `type` of an existing script macro (an
+unknown macro id is refused too). Chat macros and deleting macros are always
+allowed. Set `FOUNDRY_ALLOW_SCRIPT_MACROS=true` only if you trust the
+assistant to write code that your players' browsers will run.
+
 | Area | Tools |
 |---|---|
 | Documents | `gm_document` |
