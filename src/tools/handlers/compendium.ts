@@ -107,3 +107,54 @@ ${entryList || 'No compendium entries found matching the criteria.'}
     };
   });
 }
+
+/** Lists all compendium packs known to the world (read-only). */
+export async function handleListCompendiums(
+  args: { package?: string; type?: string },
+  foundryClient: FoundryClient,
+) {
+  return withToolError('list compendiums', async () => {
+    let packs = foundryClient.listCompendiums();
+    if (args?.package) {
+      packs = packs.filter((p) => p.package === args.package);
+    }
+    if (args?.type) {
+      packs = packs.filter((p) => p.type.toLowerCase() === String(args.type).toLowerCase());
+    }
+    const lines = packs.map(
+      (p) =>
+        `- ${p.id} | ${p.label} | ${p.type} | ${p.package} (${p.packageType || '?'})${p.system ? ` | system: ${p.system}` : ''}`,
+    );
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${packs.length} compendium pack(s):\n${lines.join('\n')}\n\nJSON:\n${JSON.stringify(packs)}`,
+        },
+      ],
+    };
+  });
+}
+
+/** Returns the index (_id, name, type) of one compendium pack (read-only). */
+export async function handleGetCompendiumIndex(
+  args: { packId: string; limit?: number },
+  foundryClient: FoundryClient,
+) {
+  if (!args?.packId || typeof args.packId !== 'string') {
+    throw new McpError(ErrorCode.InvalidParams, 'packId is required and must be a string');
+  }
+  return withToolError('get compendium index', async () => {
+    const idx = await foundryClient.getCompendiumIndex(args.packId);
+    const limit = args.limit && args.limit > 0 ? args.limit : 500;
+    const shown = idx.entries.slice(0, limit);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `${idx.pack} (${idx.documentName}): ${idx.entries.length} entries${idx.entries.length > shown.length ? `, showing ${shown.length}` : ''}\n${JSON.stringify(shown)}`,
+        },
+      ],
+    };
+  });
+}

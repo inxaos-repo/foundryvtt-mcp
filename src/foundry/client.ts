@@ -892,6 +892,70 @@ export class FoundryClient {
     });
   }
 
+  // ==========================================================================
+  // Compendium listing (READ - socket world data / modifyDocument get)
+  // ==========================================================================
+
+  /** Lists compendium packs advertised in the socket `world` payload. */
+  listCompendiums(): Array<{
+    id: string;
+    label: string;
+    type: string;
+    package: string;
+    packageType: string;
+    system: string | null;
+  }> {
+    const packs = (this.worldData?.packs ?? []) as Array<Record<string, unknown>>;
+    return packs.map((p) => {
+      const pkg = String(p.packageName ?? p.package ?? '');
+      const name = String(p.name ?? '');
+      const sys = p.system;
+      return {
+        id: String(p.id ?? (pkg && name ? `${pkg}.${name}` : name)),
+        label: String(p.label ?? name),
+        type: String(p.type ?? p.documentName ?? p.entity ?? ''),
+        package: pkg,
+        packageType: String(p.packageType ?? ''),
+        system: Array.isArray(sys) ? sys.join(',') : sys ? String(sys) : null,
+      };
+    });
+  }
+
+  /** Reads the index (_id, name, type) of one compendium pack (read-only `get`). */
+  async getCompendiumIndex(packId: string): Promise<{
+    pack: string;
+    documentName: string;
+    entries: Array<{ _id: string; name: string; type: string | null }>;
+  }> {
+    const pack = this.listCompendiums().find((p) => p.id === packId);
+    if (!pack) {
+      throw new Error(`Unknown compendium pack: ${packId}`);
+    }
+    const request = {
+      type: pack.type,
+      action: 'get',
+      operation: { query: {}, index: true, indexFields: ['_id', 'name', 'type'], pack: packId },
+    };
+    const response = await this.emitWithAck<DocumentSocketResponse>('modifyDocument', request);
+    if (response?.error) {
+      throw new Error(
+        `FoundryVTT rejected index read for ${packId}: ${response.error.message || 'unknown error'}`,
+      );
+    }
+    const rows = Array.isArray(response?.result)
+      ? (response.result as Array<Record<string, unknown>>)
+      : [];
+    return {
+      pack: packId,
+      documentName: pack.type,
+      entries: rows.map((r) => ({
+        _id: String(r._id ?? ''),
+        name: String(r.name ?? ''),
+        type: r.type === undefined || r.type === null ? null : String(r.type),
+      })),
+    };
+  }
+
   /**
    * Performs a FoundryVTT document mutation over Socket.IO using the core
    * `modifyDocument` protocol. The request shape is verified against the
