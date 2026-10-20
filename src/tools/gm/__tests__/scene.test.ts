@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { FoundryClient } from '../../../foundry/client.js';
 import { findBlockingWalls, segmentsIntersect } from '../geometry.js';
 import { ID, makeClient, makeWorld, run } from './fixtures.js';
 
@@ -47,15 +48,69 @@ describe('scene tools', () => {
     expect((op.data[0]?.walls as unknown[]).length).toBe(3);
     expect(text).toContain('"walls": 3');
   });
-  it('activate_scene can pull players', async () => {
+  function emitCalls(client: FoundryClient): unknown[][] {
+    return (client as unknown as { gmEmit: { mock: { calls: unknown[][] } } }).gmEmit.mock.calls;
+  }
+
+  it('activate_scene activates an inactive scene and pulls non-GM players twice', async () => {
+    vi.useFakeTimers();
+    try {
+      const w = makeWorld();
+      (w.scenes[0] as { active: boolean }).active = false;
+      const { client, gmModify } = makeClient(w);
+      const p = run('activate_scene', client, { sceneId: 'Dungeon' });
+      await vi.runAllTimersAsync();
+      const { text } = await p;
+      expect(gmModify).toHaveBeenCalledWith('Scene', 'update', {
+        updates: [{ _id: ID(10), active: true }],
+      });
+      // Only the role-1 user is pulled; roles 3 (assistant) and 4 count as GMs.
+      expect(emitCalls(client)).toEqual([
+        ['pullToScene', ID(10), 'player0000000001', {}],
+        ['pullToScene', ID(10), 'player0000000001', {}],
+      ]);
+      expect(text).toContain('pulled 1 user(s)');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('activate_scene on an already-active scene still pulls players', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client, gmModify } = makeClient();
+      const p = run('activate_scene', client, { sceneId: 'Dungeon', includeGMs: true });
+      await vi.runAllTimersAsync();
+      const { text } = await p;
+      expect(gmModify).not.toHaveBeenCalled();
+      expect(emitCalls(client)).toHaveLength(6);
+      expect(text).toContain('Already active');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('create_token uses the prototype token with vision', async () => {
     const { client, gmModify } = makeClient();
-    await run('activate_scene', client, { sceneId: 'Dungeon', pullPlayers: true });
-    expect(gmModify).toHaveBeenCalledWith('Scene', 'update', {
-      updates: [{ _id: ID(10), active: true }],
+    await run('create_token', client, {
+      actorId: 'Test Fighter',
+      x: 200,
+      y: 300,
+      vision: true,
+      hidden: false,
     });
-    expect(
-      (client as unknown as { gmEmit: { mock: { calls: unknown[] } } }).gmEmit.mock.calls,
-    ).toHaveLength(3);
+    const op = gmModify.mock.calls[0]?.[2] as {
+      data: Array<Record<string, unknown>>;
+      parentUuid: string;
+    };
+    expect(op.parentUuid).toBe(`Scene.${ID(10)}`);
+    expect(op.data[0]).toMatchObject({
+      actorId: ID(1),
+      x: 200,
+      y: 300,
+      actorLink: true,
+      sight: { enabled: true },
+    });
   });
   it('create_token uses the prototype token with vision', async () => {
     const { client, gmModify } = makeClient();
