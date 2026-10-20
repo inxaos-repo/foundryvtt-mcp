@@ -32,6 +32,26 @@ import {
   world,
 } from './helpers.js';
 
+/** Delay before re-sending pullToScene, in ms. */
+export const PULL_RETRY_MS = 1500;
+
+/**
+ * Users to pull on activation. Online status in the cached world data can be
+ * stale, and the server ignores users with no open sockets, so every non-GM
+ * user is targeted.
+ */
+function pullTargets(
+  client: Parameters<typeof world>[0],
+  includeGMs: boolean,
+): Array<{ _id: string; name: string }> {
+  const users = (world(client).users ?? []) as Array<{
+    _id: string;
+    name: string;
+    role?: number;
+  }>;
+  return users.filter((u) => includeGMs || (u.role ?? 0) < 3);
+}
+
 export const WRITE_NOTE = ' Requires FOUNDRY_WRITE_ENABLED=true.';
 
 export interface GmToolSpec {
@@ -283,7 +303,10 @@ export const sceneTools: GmToolSpec[] = [
   {
     name: 'activate_scene',
     description:
-      'Make a scene the active scene for everyone (players are moved to it). Optionally pull every connected player onto it too.' +
+      'Make a scene the active scene and move every connected player onto it. ' +
+      'Foundry only moves clients when the `active` flag actually changes, and a player ' +
+      'who was pulled to another scene stays there, so this also sends pullToScene to ' +
+      'every non-GM user (twice, to cover clients still loading a canvas).' +
       WRITE_NOTE,
     inputSchema: {
       type: 'object',
@@ -291,23 +314,43 @@ export const sceneTools: GmToolSpec[] = [
         sceneId: { type: 'string', description: 'Scene id or name' },
         pullPlayers: {
           type: 'boolean',
-          description: 'Also send pullToScene to all users (default false)',
+          description: 'Pull all non-GM users onto the scene (default true)',
+        },
+        includeGMs: {
+          type: 'boolean',
+          description: 'Also pull GM users (default false)',
         },
       },
       required: ['sceneId'],
     },
     async run(client, args) {
       const scene = getScene(client, str(args, 'sceneId'));
-      await client.gmModify('Scene', 'update', { updates: [{ _id: scene._id, active: true }] });
-      let pulled = 0;
-      if (bool(args, 'pullPlayers', false)) {
-        for (const u of world(client).users ?? []) {
-          await client.gmEmit('pullToScene', scene._id, u._id);
-          pulled++;
+      const wasActive = Boolean((scene as { active?: boolean }).active);
+      // Setting active: true on an already-active scene is a no-op diff: the
+      // server broadcasts nothing and no client switches. The server-side update
+      // deactivates every other scene in the same operation.
+      if (!wasActive) {
+        await client.gmModify('Scene', 'update', { updates: [{ _id: scene._id, active: true }] });
+      }
+      const targets =
+        (bool(args, 'pullPlayers', true) ?? true)
+          ? pullTargets(client, bool(args, 'includeGMs', false) ?? false)
+          : [];
+      const pull = async () => {
+        for (const u of targets) {
+          await client.gmEmit('pullToScene', scene._id, u._id, {});
         }
+      };
+      await pull();
+      // A client still drawing the previous canvas ignores a view request
+      // (canvas.loading), so repeat once after a short delay.
+      if (targets.length) {
+        await new Promise((r) => setTimeout(r, PULL_RETRY_MS));
+        await pull();
       }
       return ok(
-        `🎬 Activated "${scene.name}" (${scene._id})${pulled ? `; pulled ${pulled} user(s)` : ''}`,
+        `🎬 ${wasActive ? 'Already active' : 'Activated'} "${scene.name}" (${scene._id}); pulled ${targets.length} user(s)`,
+        targets.map((u) => u.name),
       );
     },
   },
@@ -337,7 +380,7 @@ export const sceneTools: GmToolSpec[] = [
         ? keys.map((k) => findByIdOrName(users as Array<{ _id: string; name: string }>, k, 'User'))
         : users;
       for (const u of targets) {
-        await client.gmEmit('pullToScene', scene._id, u._id);
+        await client.gmEmit('pullToScene', scene._id, u._id, {});
       }
       return ok(
         `👁️ Pulled ${targets.length} user(s) to "${scene.name}"`,
