@@ -6,9 +6,10 @@
 import type { Tool } from '../base.js';
 import { documentTools } from './document.js';
 import { mediaTools } from './media.js';
+import { partyTools } from './party.js';
 import { type GmToolSpec, toTool } from './tool-spec.js';
 
-export const gmToolSpecs: GmToolSpec[] = [...documentTools, ...mediaTools];
+export const gmToolSpecs: GmToolSpec[] = [...documentTools, ...mediaTools, ...partyTools];
 
 export const gmTools: Tool[] = gmToolSpecs.map(toTool);
 
