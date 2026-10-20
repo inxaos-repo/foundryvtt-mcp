@@ -105,16 +105,23 @@ export const actorTools: GmToolSpec[] = [
       const t = resolveTarget(client, args);
       const statusId = str(args, 'statusId') as string;
       const active = bool(args, 'active') as boolean;
-      if (t.unlinked && t.token) {
-        throw new GmToolError(
-          'Token is unlinked: conditions on token deltas are not supported yet — use the actor (actorId) or link the token',
-        );
-      }
-      const effects = embedded(t.actor, 'effects');
-      const existing = effects.filter((e) => ((e.statuses as string[]) ?? []).includes(statusId));
-      const parentUuid = `Actor.${t.actor._id}`;
-      if (active && !existing.length) {
-        await client.gmModify('ActiveEffect', 'create', {
+      // An unlinked token's synthetic actor stores its own effects on the
+      // token's ActorDelta; the delta is the parent for creates/deletes.
+      const delta = t.unlinked && t.token ? ((t.token.delta ?? {}) as Obj) : undefined;
+      const parentUuid = delta
+        ? `Scene.${t.sceneId}.Token.${t.token?._id}.ActorDelta.${String(delta._id ?? t.token?._id)}`
+        : `Actor.${t.actor._id}`;
+      const hasStatus = (e: Obj) => ((e.statuses as string[]) ?? []).includes(statusId);
+      const ownEffects = (
+        delta ? ((delta.effects as Obj[] | undefined) ?? []) : embedded(t.actor, 'effects')
+      ) as Obj[];
+      const baseEffects = delta ? (embedded(t.actor, 'effects') as Obj[]) : [];
+      const existing = ownEffects.filter(hasStatus);
+      const inherited = baseEffects.filter(hasStatus);
+      let created: Obj | undefined;
+      let removed: string[] = [];
+      if (active && !existing.length && !inherited.length) {
+        const res = await client.gmModify('ActiveEffect', 'create', {
           parentUuid,
           data: [
             {
@@ -124,16 +131,30 @@ export const actorTools: GmToolSpec[] = [
             },
           ],
         });
+        created = res[0] as Obj | undefined;
       } else if (!active && existing.length) {
-        await client.gmModify('ActiveEffect', 'delete', {
-          parentUuid,
-          ids: existing.map((e) => String(e._id)),
-        });
+        removed = existing.map((e) => String(e._id));
+        await client.gmModify('ActiveEffect', 'delete', { parentUuid, ids: removed });
       }
-      const now = embedded(getActor(client, t.actor._id), 'effects').flatMap(
-        (e) => (e.statuses as string[]) ?? [],
+      if (!active && inherited.length) {
+        throw new GmToolError(
+          `${statusId} comes from the base actor "${t.actor.name}" and applies to every token of it; remove it from the actor (actorId) instead`,
+        );
+      }
+      // Read back from the server's reply rather than the cache, which does not
+      // track ActorDelta children.
+      const statuses = new Set<string>(
+        [
+          ...ownEffects.filter((e) => !removed.includes(String(e._id))),
+          ...baseEffects,
+          ...(created ? [created] : []),
+        ].flatMap((e) => (e.statuses as string[]) ?? []),
       );
-      return ok(`🩹 ${t.actor.name}: ${statusId} ${active ? 'on' : 'off'}`, { statuses: now });
+      const now = [...statuses];
+      const who = t.token
+        ? `${String(t.token.name ?? t.actor.name)}${delta ? ' (token)' : ''}`
+        : t.actor.name;
+      return ok(`🩹 ${who}: ${statusId} ${active ? 'on' : 'off'}`, { statuses: now });
     },
   },
   {

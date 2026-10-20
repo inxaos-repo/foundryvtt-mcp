@@ -109,12 +109,35 @@ function hasHttpResponse(error: unknown): boolean {
 const SORT_INTEGER_DENSITY = 100000;
 
 /**
- * Accepts the two parent-UUID forms a token's actor can take:
+ * Accepts the parent-UUID forms a token's actor can take:
  *  - `Actor.<id>` — a world-linked actor (`actorLink: true`)
  *  - `Scene.<sid>.Token.<tid>.Actor.<aid>` — an unlinked token's synthetic actor
+ *  - `Scene.<sid>.Token.<tid>.ActorDelta.<did>` — the delta that stores it
  */
 const TOKEN_ACTOR_UUID_PATTERN =
-  /^(Actor\.[a-zA-Z0-9]{16}|Scene\.[a-zA-Z0-9]{16}\.Token\.[a-zA-Z0-9]{16}\.Actor\.[a-zA-Z0-9]{16})$/;
+  /^(Actor\.[a-zA-Z0-9]{16}|Scene\.[a-zA-Z0-9]{16}\.Token\.[a-zA-Z0-9]{16}\.(Actor|ActorDelta)\.[a-zA-Z0-9]{16})$/;
+
+/**
+ * Embedded documents of an unlinked token's synthetic actor are stored on the
+ * token's ActorDelta, and the server only accepts them with the delta as the
+ * parent (`Scene.<sid>.Token.<tid>.ActorDelta.<did>`), which is what browser
+ * clients send. Rewrites the synthetic-actor form to the delta form.
+ */
+export function effectParentUuid(
+  uuid: string,
+  findToken: (sceneId: string, tokenId: string) => Record<string, unknown> | undefined,
+): string {
+  const m = /^Scene\.([a-zA-Z0-9]{16})\.Token\.([a-zA-Z0-9]{16})\.Actor\.[a-zA-Z0-9]{16}$/.exec(
+    uuid,
+  );
+  if (!m) {
+    return uuid;
+  }
+  const [, sceneId = '', tokenId = ''] = m;
+  const token = findToken(sceneId, tokenId);
+  const delta = token?.delta as { _id?: string } | undefined;
+  return `Scene.${sceneId}.Token.${tokenId}.ActorDelta.${delta?._id ?? tokenId}`;
+}
 
 /**
  * Minimal Zod schema for the `/api/dice/roll` REST response.
@@ -1348,6 +1371,16 @@ export class FoundryClient {
     return result[0];
   }
 
+  /** Parent UUID to send for an effect on a token's actor (see {@link effectParentUuid}). */
+  private effectParent(parentActorUuid: string): string {
+    return effectParentUuid(parentActorUuid, (sid, tid) => {
+      const scene = this.worldData?.scenes.find((x) => x._id === sid) as
+        | { tokens?: Array<Record<string, unknown>> }
+        | undefined;
+      return scene?.tokens?.find((t) => t._id === tid);
+    });
+  }
+
   /**
    * Creates a status-effect `ActiveEffect` on a token's actor (FR-019).
    *
@@ -1386,7 +1419,7 @@ export class FoundryClient {
     }
     const result = await this.modifyDocument('ActiveEffect', 'create', {
       data: [effectData],
-      parentUuid: parentActorUuid,
+      parentUuid: this.effectParent(parentActorUuid),
     });
     return result[0] as WorldEffect;
   }
@@ -1409,7 +1442,7 @@ export class FoundryClient {
     }
     await this.modifyDocument('ActiveEffect', 'delete', {
       ids: [effectId],
-      parentUuid: parentActorUuid,
+      parentUuid: this.effectParent(parentActorUuid),
     });
   }
 

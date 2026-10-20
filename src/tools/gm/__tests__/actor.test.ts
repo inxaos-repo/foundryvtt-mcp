@@ -22,4 +22,21 @@ describe('actor state', () => {
       expect.objectContaining({ updates: [{ _id: ID(9), 'system.quantity.value': 7 }] }),
     );
   });
+  it('set_condition writes an unlinked token status to its ActorDelta', async () => {
+    const { client, gmModify } = makeClient();
+    const r = await run('set_condition', client, {
+      tokenId: ID(60),
+      statusId: 'prone',
+      active: true,
+    });
+    expect(r.res.isError).toBeFalsy();
+    expect(gmModify).toHaveBeenCalledWith(
+      'ActiveEffect',
+      'create',
+      expect.objectContaining({
+        parentUuid: `Scene.${ID(10)}.Token.${ID(60)}.ActorDelta.${ID(60)}`,
+        data: [expect.objectContaining({ statuses: ['prone'] })],
+      }),
+    );
+  });
 });
