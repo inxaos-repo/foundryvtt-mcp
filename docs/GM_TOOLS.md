@@ -73,7 +73,32 @@ registerSystemAdapter({
 });
 ```
 
-An adapter for Old-School Essentials (`ose`) is included.
+Adapters for Old-School Essentials (`ose`) and Pathfinder Second Edition
+(`pf2e`) are included.
+
+### PF2e
+
+- Kinds: `save` (key `fortitude`/`reflex`/`will`, or `fort`/`ref`),
+  `skill` (a skill slug such as `stealth`, a 3-letter alias such as `ste`,
+  or a lore name such as `warfare`), and `perception`. `target` is the DC;
+  the verdict is the degree of success (critical success, success, failure,
+  critical failure), with a natural 20 or 1 moving it one step.
+- NPC checks use the saves, perception, skills and lore modifiers stored on
+  the NPC, so they match the sheet. Untrained NPC skills use the attribute
+  modifier.
+- Character checks are rebuilt from source data: attribute modifiers from
+  ancestry, background, class and level boosts (partial boosts above +4),
+  plus proficiency (2 × rank + level when trained) from the class, background
+  and skill ranks. Item, status and circumstance bonuses, feats and rule
+  elements are not applied, so pass `modifier` for those. Check the sheet when
+  it matters.
+- `set_condition` adds PF2e conditions as condition items copied from the
+  `pf2e.conditionitems` compendium (not ActiveEffects). Valued conditions
+  (clumsy, doomed, drained, dying, enfeebled, frightened, sickened, slowed,
+  stunned, stupefied, wounded, cursebound) take `value`; an existing
+  condition's value is updated in place, and `value: 0` or `active: false`
+  removes it.
+- Initiative in encounters still defaults to `1d20` (no Perception bonus).
 
 ## Lookups
 

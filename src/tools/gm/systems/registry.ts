@@ -1,4 +1,5 @@
 import { ose } from './ose.js';
+import { pf2eAdapter } from './pf2e.js';
 import type { SystemRollAdapter } from './types.js';
 
 const adapters = new Map<string, SystemRollAdapter>();
@@ -16,3 +17,4 @@ export function listSystemAdapters(): SystemRollAdapter[] {
 }
 
 registerSystemAdapter(ose);
+registerSystemAdapter(pf2eAdapter);
