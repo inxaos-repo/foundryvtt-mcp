@@ -11,9 +11,9 @@ const ID = (n: number): string => `id${String(n).padStart(14, '0')}`;
 
 function makeWorld() {
   return {
-    userId: 'dmagent000000001',
+    userId: 'gmbot00000000001',
     users: [
-      { _id: 'dmagent000000001', name: 'gm-bot', role: 3 },
+      { _id: 'gmbot00000000001', name: 'gm-bot', role: 3 },
       { _id: 'gm00000000000001', name: 'Gamemaster', role: 4 },
       { _id: 'player0000000001', name: 'Alice', role: 1, character: ID(1) },
     ],
