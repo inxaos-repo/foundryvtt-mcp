@@ -5,11 +5,25 @@ import {
   findBlockingWalls,
   findGridPath,
   segmentsIntersect,
+  wallSide,
   wallsCrossed,
 } from '../geometry.js';
 import { ID, makeClient, makeWorld, run } from './fixtures.js';
 
 describe('geometry', () => {
+  it('one-way walls block only from the closed side', () => {
+    const a = { x: 100, y: -1000 };
+    const b = { x: 100, y: 1000 };
+    expect(wallSide(a, b, { x: 50, y: 50 })).toBe(1);
+    expect(wallSide(a, b, { x: 150, y: 50 })).toBe(2);
+    const wall = { _id: 'w', c: [100, -1000, 100, 1000], dir: 1 };
+    const opts = { size: 100, bounds: { x: -300, y: -300, width: 700, height: 700 } };
+    expect(findGridPath([wall], { x: 50, y: 50 }, { x: 150, y: 50 }, opts)).not.toBeNull();
+    expect(findGridPath([wall], { x: 150, y: 50 }, { x: 50, y: 50 }, opts)).toBeNull();
+    expect(
+      findGridPath([{ ...wall, dir: 0 }], { x: 50, y: 50 }, { x: 150, y: 50 }, opts),
+    ).toBeNull();
+  });
   it('canOpenDoor allows closed doors, locked/secret only when forced', () => {
     const d = (door: number, ds: number) => ({ _id: 'w', c: [0, 0, 0, 1], door, ds });
     expect(canOpenDoor(d(1, 0))).toBe(true);

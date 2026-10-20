@@ -138,8 +138,11 @@ the result. Compendium tables are not supported; import the table first.
 - `move_token_checked` searches a square-by-square route (8 directions, no
   corner cutting) between token centres that avoids movement-blocking walls
   and closed or locked doors, and moves the token along it. It treats the
-  token as a point and does not model one-way walls, regions, terrain or
-  line of sight. With `openDoors=true` it may route through closed, unlocked
+  token as a point (its centre), which is also how Foundry tests token
+  movement against walls, so large tokens are routed by their centre and may
+  squeeze through gaps narrower than their footprint. One-way walls block
+  only from their closed side, as in Foundry. Regions, difficult terrain and
+  movement cost are not modelled, and diagonals count as one square. With `openDoors=true` it may route through closed, unlocked
   doors (only when no door-free route exists) and opens them first; locked
   and secret doors need `forceDoors=true`. Route corners are sent as
   explicit waypoints so players' clients animate the walk along the route.

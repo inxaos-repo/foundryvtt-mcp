@@ -156,6 +156,7 @@ export function findGridPath(
       return {
         a: { x: x1, y: y1 },
         b: { x: x2, y: y2 },
+        dir: Number(w.dir ?? 0),
         minX: Math.min(x1, x2),
         maxX: Math.max(x1, x2),
         minY: Math.min(y1, y2),
@@ -170,6 +171,9 @@ export function findGridPath(
     for (const s of solid) {
       if (s.maxX < minX || s.minX > maxX || s.maxY < minY || s.minY > maxY) {
         continue;
+      }
+      if (s.dir && wallSide(s.a, s.b, p) === s.dir) {
+        continue; // one-way wall seen from its open side
       }
       if (segmentsIntersect(p, q, s.a, s.b)) {
         return false;
@@ -290,4 +294,14 @@ export function wallsCrossed(candidates: WallLike[], points: Point[]): WallLike[
     }
   }
   return out;
+}
+
+/**
+ * Side of wall a→b that point p is on, as Foundry's EDGE_DIRECTIONS
+ * (0 collinear, 1 left, 2 right). A one-way wall (dir 1 or 2) does not
+ * block movement that starts on the side equal to its dir.
+ */
+export function wallSide(a: Point, b: Point, p: Point): number {
+  const o = (a.y - p.y) * (b.x - p.x) - (a.x - p.x) * (b.y - p.y);
+  return o === 0 ? 0 : o < 0 ? 1 : 2;
 }
