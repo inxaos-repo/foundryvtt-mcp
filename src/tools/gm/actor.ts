@@ -14,7 +14,10 @@ import {
   ok,
   resolveTarget,
   str,
+  world,
 } from './helpers.js';
+import { getSystemAdapter } from './systems/registry.js';
+import type { ConditionSupport } from './systems/types.js';
 import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 
 // ---------------------------------------------------------------------------
@@ -22,6 +25,124 @@ import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 // ---------------------------------------------------------------------------
 
 const HP_PATHS = ['system.hp', 'system.attributes.hp'];
+
+type Target = ReturnType<typeof resolveTarget>;
+
+function conditionSlug(i: Obj): string {
+  const slug = getPath(i, 'system.slug');
+  return typeof slug === 'string' && slug
+    ? slug
+    : String(i.name ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '-');
+}
+
+function conditionText(i: Obj): string {
+  const v = getPath(i, 'system.value.value');
+  return getPath(i, 'system.value.isValued') && typeof v === 'number'
+    ? `${conditionSlug(i)} ${v}`
+    : conditionSlug(i);
+}
+
+/**
+ * Item-based conditions (PF2e): add the condition Item from the system's
+ * compendium, set its value, or delete it. An unlinked token's own condition
+ * items live on its ActorDelta.
+ */
+export async function setConditionItem(
+  client: Parameters<GmToolSpec['run']>[0],
+  t: Target,
+  statusId: string,
+  active: boolean,
+  value: number | undefined,
+  support: ConditionSupport,
+): Promise<ReturnType<typeof ok>> {
+  const slug = statusId.trim().toLowerCase().replace(/\s+/g, '-');
+  const valued = support.valued.includes(slug);
+  if (value !== undefined && !valued) {
+    throw new GmToolError(`${slug} does not take a value`);
+  }
+  if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+    throw new GmToolError('value must be a whole number ≥ 0');
+  }
+  const delta = t.unlinked && t.token ? ((t.token.delta ?? {}) as Obj) : undefined;
+  const parentUuid = delta
+    ? `Scene.${t.sceneId}.Token.${t.token?._id}.ActorDelta.${String(delta._id ?? t.token?._id)}`
+    : `Actor.${t.actor._id}`;
+  const own = (
+    delta ? ((delta.items as Obj[] | undefined) ?? []) : embedded(t.actor, 'items')
+  ).filter((i) => i.type === 'condition') as Obj[];
+  const base = delta
+    ? (embedded(t.actor, 'items') as Obj[]).filter((i) => i.type === 'condition')
+    : [];
+  const existing = own.filter((i) => conditionSlug(i) === slug);
+  const remove = !active || value === 0;
+  let after = own;
+  if (remove) {
+    if (existing.length) {
+      const ids = existing.map((i) => String(i._id));
+      await client.gmModify('Item', 'delete', { parentUuid, ids });
+      after = own.filter((i) => !ids.includes(String(i._id)));
+    } else if (base.some((i) => conditionSlug(i) === slug)) {
+      throw new GmToolError(
+        `${slug} comes from the base actor "${t.actor.name}" and applies to every token of it; remove it from the actor (actorId) instead`,
+      );
+    }
+  } else if (existing.length) {
+    const cur = existing[0] as Obj;
+    if (valued && value !== undefined && getPath(cur, 'system.value.value') !== value) {
+      await client.gmModify('Item', 'update', {
+        parentUuid,
+        updates: [{ _id: cur._id, 'system.value.value': value }],
+      });
+      after = own.map((i) =>
+        i === cur
+          ? {
+              ...cur,
+              system: {
+                ...(cur.system as Obj),
+                value: { ...(getPath(cur, 'system.value') as Obj), value },
+              },
+            }
+          : i,
+      );
+    }
+  } else {
+    const docs = (await client.gmGet('Item', { pack: support.pack })) as Obj[];
+    const src = docs.find((d) => d.type === 'condition' && conditionSlug(d) === slug);
+    if (!src) {
+      const known = docs
+        .filter((d) => d.type === 'condition')
+        .map(conditionSlug)
+        .sort()
+        .join(', ');
+      throw new GmToolError(`Unknown condition "${statusId}". Known: ${known}`);
+    }
+    const { _id, folder: _folder, sort: _sort, ownership: _own, _stats, ...rest } = src;
+    const data: Obj = {
+      ...rest,
+      _stats: { compendiumSource: `Compendium.${support.pack}.Item.${String(_id)}` },
+    };
+    if (valued) {
+      data.system = {
+        ...(rest.system as Obj),
+        value: { ...(getPath(rest, 'system.value') as Obj), value: value ?? 1 },
+      };
+    }
+    const res = (await client.gmModify('Item', 'create', { parentUuid, data: [data] })) as Obj[];
+    after = [...own, ...(res[0] ? [res[0]] : [data])];
+  }
+  const now = [...after, ...base].map(conditionText);
+  const who = t.token
+    ? `${String(t.token.name ?? t.actor.name)}${delta ? ' (token)' : ''}`
+    : t.actor.name;
+  const shown = remove
+    ? 'off'
+    : valued
+      ? `${value ?? getPath(existing[0], 'system.value.value') ?? 1}`
+      : 'on';
+  return ok(`🩹 ${who}: ${slug} ${shown}`, { conditions: now });
+}
 
 function hpPath(actor: Obj): string {
   const p = HP_PATHS.find((path) => typeof getPath(actor, `${path}.value`) === 'number');
@@ -86,7 +207,7 @@ export const actorTools: GmToolSpec[] = [
   {
     name: 'set_condition',
     description:
-      'Add or remove a condition / status effect (e.g. "dead", "prone", "blind", "poison") on an actor or token as an ActiveEffect with that status id. Lists current statuses.' +
+      'Add or remove a condition / status effect (e.g. "dead", "prone", "blind", "poison") on an actor or token as an ActiveEffect with that status id. Lists current statuses. In systems whose conditions are items (PF2e) the condition item is added from the system compendium instead, and valued conditions take value (frightened 2; value 0 removes).' +
       WRITE_NOTE,
     inputSchema: {
       type: 'object',
@@ -98,6 +219,11 @@ export const actorTools: GmToolSpec[] = [
         active: { type: 'boolean' },
         label: { type: 'string', description: 'Display name (default statusId)' },
         icon: { type: 'string', description: 'Icon path (default icons/svg/aura.svg)' },
+        value: {
+          type: 'number',
+          description:
+            'Value for valued conditions in systems that have them (PF2e frightened 2…); 0 removes',
+        },
       },
       required: ['statusId', 'active'],
     },
@@ -105,6 +231,17 @@ export const actorTools: GmToolSpec[] = [
       const t = resolveTarget(client, args);
       const statusId = str(args, 'statusId') as string;
       const active = bool(args, 'active') as boolean;
+      const value = num(args, 'value', false);
+      const systemId = String((world(client).system as Obj | undefined)?.id ?? '');
+      const support = getSystemAdapter(systemId)?.conditions;
+      if (support) {
+        return setConditionItem(client, t, statusId, active, value, support);
+      }
+      if (value !== undefined) {
+        throw new GmToolError(
+          `System "${systemId || 'unknown'}" has no valued conditions; omit value`,
+        );
+      }
       // An unlinked token's synthetic actor stores its own effects on the
       // token's ActorDelta; the delta is the parent for creates/deletes.
       const delta = t.unlinked && t.token ? ((t.token.delta ?? {}) as Obj) : undefined;

@@ -26,6 +26,13 @@ export interface SystemCheck {
   evaluate: (total: number, natural: number) => string;
 }
 
+export interface ConditionSupport {
+  /** Compendium (pack id) holding the condition Items. */
+  readonly pack: string;
+  /** Condition slugs that take a numeric value (frightened 2…). */
+  readonly valued: readonly string[];
+}
+
 export interface SystemRollAdapter {
   /** Foundry system id this adapter handles. */
   readonly systemId: string;
@@ -33,6 +40,12 @@ export interface SystemRollAdapter {
   readonly kinds: Readonly<Record<string, string>>;
   /** Default initiative formula for encounters in this system. */
   readonly initiativeFormula?: string;
+  /**
+   * Systems whose conditions are Items from a compendium (e.g. PF2e) rather
+   * than ActiveEffects with a status id. set_condition uses this to add,
+   * value and remove those items.
+   */
+  readonly conditions?: ConditionSupport;
   buildCheck(
     actor: Record<string, unknown>,
     kind: string,
