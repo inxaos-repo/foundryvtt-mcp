@@ -188,11 +188,16 @@ export const sceneTools: GmToolSpec[] = [
       const base: Obj = parentUuid ? { parentUuid } : {};
       if (action === 'get') {
         const pack = str(args, 'pack', false);
-        const res = await client.gmGet(type, {
+        const query = (args.query as Obj) ?? {};
+        let res = (await client.gmGet(type, {
           ...base,
-          query: (args.query as Obj) ?? {},
+          query,
           ...(pack ? { pack } : {}),
-        });
+        })) as Obj[];
+        // Foundry ignores the query for embedded gets — filter here.
+        if (parentUuid) {
+          res = res.filter((d) => Object.entries(query).every(([k, v]) => d[k] === v));
+        }
         return ok(`📄 ${res.length} ${type} document(s)`, res.slice(0, 50));
       }
       if (action === 'delete') {
