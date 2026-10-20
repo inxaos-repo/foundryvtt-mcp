@@ -4,10 +4,11 @@
  * through `modifyDocument` or a fixed allow-list of socket events.
  */
 import type { Tool } from '../base.js';
+import { chatTools } from './chat.js';
 import { documentTools } from './document.js';
 import { type GmToolSpec, toTool } from './tool-spec.js';
 
-export const gmToolSpecs: GmToolSpec[] = [...documentTools];
+export const gmToolSpecs: GmToolSpec[] = [...documentTools, ...chatTools];
 
 export const gmTools: Tool[] = gmToolSpecs.map(toTool);
 
