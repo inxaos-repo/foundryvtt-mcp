@@ -4,12 +4,18 @@
  * through `modifyDocument` or a fixed allow-list of socket events.
  */
 import type { Tool } from '../base.js';
+import { compendiumTools } from './compendium.js';
 import { documentTools } from './document.js';
 import { mediaTools } from './media.js';
 import { partyTools } from './party.js';
 import { type GmToolSpec, toTool } from './tool-spec.js';
 
-export const gmToolSpecs: GmToolSpec[] = [...documentTools, ...mediaTools, ...partyTools];
+export const gmToolSpecs: GmToolSpec[] = [
+  ...documentTools,
+  ...mediaTools,
+  ...partyTools,
+  ...compendiumTools,
+];
 
 export const gmTools: Tool[] = gmToolSpecs.map(toTool);
 
