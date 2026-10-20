@@ -49,6 +49,17 @@ assistant to write code that your players' browsers will run.
   `reset_fog` reads the scene's FogExploration records back to confirm the
   old ones are gone.
 
+- Turn order: Foundry sorts combatants with the game system's
+  `_sortCombatants`. The bridge mirrors it for every turn-order consumer
+  (`turn_context`, `combat_control`, legacy `get_combat_state` / `next_turn` /
+  `set_initiative`, the combat resource). For OSE (`ose`) equal initiative is
+  broken by colour group (`green, red, yellow, purple, blue, orange, white,
+  slow, cast`), then token disposition (friendly first), then player-owned
+  first, then name, then id — copied from the installed system's
+  `dist/ose.js`. Other systems keep core's initiative-then-id order.
+- Legacy `start_combat` begins the encounter (round 1, turn 0) like
+  "Begin Combat"; `next_turn` on an unbegun combat begins it.
+
 ## System roll adapters
 
 `system_roll` delegates to an adapter chosen by the world's system id. A
@@ -151,3 +162,42 @@ the result. Compendium tables are not supported; import the table first.
 - `set_condition` on an unlinked token writes to that token's ActorDelta (its
   own copy of the actor). A status inherited from the base actor cannot be
   removed per token; remove it from the actor instead.
+
+## Player view (dm-vision)
+
+`scripts/dm-vision.mjs` logs into Foundry as a **non-GM** user with headless
+Chromium (Playwright) and screenshots what that player sees: the scene the
+player is on (normally the active scene), with that user's vision and fog.
+Hidden tokens, GM-only notes and unrevealed fog stay hidden, so it is a check
+of what the table actually shows.
+
+Credentials live in an env file, never on the command line or in the repo:
+
+```sh
+# ~/.config/foundry-dm-vision/creds.env   (chmod 600)
+FOUNDRY_URL=http://192.168.2.157/
+FOUNDRY_USER=dm-vision
+FOUNDRY_PASS=...
+```
+
+```sh
+npx playwright install chromium            # once
+node scripts/dm-vision.mjs --login-only    # test login (prints user, GM flag, scene)
+node scripts/dm-vision.mjs --out view.png  # player's current view
+node scripts/dm-vision.mjs --token "Test Fighter" --scale 1 --hide-ui --out tok.png
+node scripts/dm-vision.mjs --scene <id|name> --out other.png   # view another (navigable) scene
+node scripts/dm-vision.mjs --print-combat  # combat tracker order as the player's client sorts it
+```
+
+Options: `--width/--height` (viewport, default 1600x1000), `--wait-ms`
+(settle time before the shot, default 2500), `--env <file>`. Pop-ups a fresh
+login opens (User Configuration) and notifications are closed before the
+shot; `--hide-ui` also hides the sidebar/HUD. Exit codes: 2 bad args or
+creds file, 3 login failed, 4 game/canvas never ready.
+
+The user needs no GM role. A user that owns or observes no token with sight
+sees a black map on scenes with token vision — that is accurate, and the
+script says so. Give it Observer on the party actors to see through their
+eyes. `--print-combat` reads `game.combats[].turns`, i.e. Foundry's own
+system sort, which makes it a ground truth for the bridge's turn order.
+
