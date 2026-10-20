@@ -9,6 +9,7 @@ import { chatTools } from './chat.js';
 import { combatTools } from './combat.js';
 import { compendiumTools } from './compendium.js';
 import { documentTools } from './document.js';
+import { lookupTools } from './lookup.js';
 import { mediaTools } from './media.js';
 import { partyTools } from './party.js';
 import { rulesTools } from './rules.js';
@@ -19,6 +20,7 @@ import { type GmToolSpec, toTool } from './tool-spec.js';
 export const gmToolSpecs: GmToolSpec[] = [
   ...documentTools,
   ...sceneTools,
+  ...lookupTools,
   ...chatTools,
   ...systemRollTools,
   ...combatTools,

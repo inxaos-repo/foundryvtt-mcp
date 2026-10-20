@@ -20,6 +20,7 @@ assistant to write code that your players' browsers will run.
 | Documents | `gm_document` |
 | Scenes | `duplicate_scene`, `activate_scene`, `view_scene`, `get_scene_full`, `set_scene_darkness` |
 | Tokens | `create_token`, `set_token_hidden`, `set_token_vision`, `delete_token`, `move_token_checked` |
+| Lookups (read-only) | `tokens_near`, `token_for_actor`, `turn_context` |
 | Doors, fog, lights, notes | `list_doors`, `set_door_state`, `reset_fog`, `get_fog_state`, `set_light_state`, `get_note_page` |
 | Chat and dice | `post_chat`, `read_chat`, `gm_roll`, `system_roll` |
 | Combat | `start_encounter`, `roll_initiative`, `combat_control`, `get_turn_order` |
@@ -73,6 +74,27 @@ registerSystemAdapter({
 ```
 
 An adapter for Old-School Essentials (`ose`) is included.
+
+## Lookups
+
+- `tokens_near` lists tokens within `radius` grid squares of a token or a
+  pixel point, nearest first. Distances are edge to edge (adjacent = 1
+  square, diagonals cost 1) and are also given in scene units. Filters:
+  `disposition`, `includeHidden` (default true; hidden tokens are flagged).
+- `token_for_actor` finds the tokens for an actor id or exact name, linked or
+  unlinked, in one scene or all scenes (active scene first).
+- `turn_context` reports the active combat's current combatant (round, turn,
+  HP, conditions) and the tokens around it with distance, disposition, HP,
+  conditions and line of sight. `map=true` adds an ASCII map (`mapRadius`
+  squares each way, default 5): `@` is the combatant, letters are tokens (see
+  the legend), and the character between two cells is the wall on that edge:
+  `#` wall, `+` closed door, `L` locked door; open doors are blank.
+- HP is read from `system.hp` or `system.attributes.hp` (an unlinked token's
+  delta wins). Conditions are the status ids on enabled effects.
+- Line of sight is a single centre-to-centre test against sight-blocking
+  walls: open doors and walls with no sight restriction do not block, limited
+  walls block when two are crossed. It ignores lighting, darkness, token
+  senses and one-way walls, so it can disagree with what a player sees.
 
 ## Limitations
 
