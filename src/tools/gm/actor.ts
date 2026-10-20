@@ -1,3 +1,4 @@
+import type { FoundryClient } from '../../foundry/client.js';
 /**
  * Actor state tools: hit points, conditions and inventory quantities.
  */
@@ -180,6 +181,49 @@ export async function setConditionItem(
   return ok(`🩹 ${who}: ${slug} ${shown}`, { conditions: now });
 }
 
+/**
+ * Keeps combat state in step with HP: at 0 HP every combatant of the target
+ * (that token, or for an actor every combatant of it) is marked defeated and
+ * gets the core "dead" status; healing above 0 clears both. Returns the
+ * combatant ids changed.
+ */
+async function syncDefeated(
+  client: FoundryClient,
+  t: ReturnType<typeof resolveTarget>,
+  down: boolean,
+): Promise<string[]> {
+  const changed: string[] = [];
+  for (const c of (world(client).combats ?? []) as unknown as Obj[]) {
+    const hits = ((c.combatants as Obj[] | undefined) ?? []).filter(
+      (x) =>
+        (t.token ? x.tokenId === t.token._id : x.actorId === t.actor._id) &&
+        Boolean(x.defeated) !== down,
+    );
+    if (!hits.length) {
+      continue;
+    }
+    await client.gmModify('Combatant', 'update', {
+      updates: hits.map((x) => ({ _id: x._id, defeated: down })),
+      parentUuid: `Combat.${String(c._id)}`,
+    });
+    changed.push(...hits.map((x) => String(x._id)));
+  }
+  if (!down && !changed.length) {
+    return changed;
+  }
+  const setCondition = actorTools.find((x) => x.name === 'set_condition');
+  try {
+    await setCondition?.run(client, {
+      ...(t.token ? { tokenId: t.token._id, sceneId: t.sceneId } : { actorId: t.actor._id }),
+      statusId: 'dead',
+      active: down,
+    });
+  } catch {
+    // Status icon is cosmetic; the defeated flag above is what combat uses.
+  }
+  return changed;
+}
+
 function hpPath(actor: Obj): string {
   const p = HP_PATHS.find((path) => typeof getPath(actor, `${path}.value`) === 'number');
   if (!p) {
@@ -233,10 +277,11 @@ export const actorTools: GmToolSpec[] = [
           diff: true,
         });
       }
+      const defeated = await syncDefeated(client, t, next === 0);
       const name = t.token?.name ?? t.actor.name;
       return ok(
         `❤️ ${name}: ${cur} → ${next}/${Number.isFinite(max) ? max : '?'}${next === 0 ? ' (down!)' : ''}`,
-        { before: cur, after: next, max },
+        { before: cur, after: next, max, defeated },
       );
     },
   },

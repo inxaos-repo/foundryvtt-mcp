@@ -121,6 +121,116 @@ export function advance(
   }
 }
 
+/**
+ * OSE's world setting `ose.initiative` ("group" | "individual"); the system
+ * registers "group" as the default, so a world that never changed it has no
+ * stored value and uses group initiative.
+ */
+export function oseGroupInitiative(client: FoundryClient): boolean {
+  const w = world(client);
+  if (String((w.system as Obj | undefined)?.id ?? '') !== 'ose') {
+    return false;
+  }
+  const entry = ((w.settings ?? []) as Obj[]).find((s) => s?.key === 'ose.initiative');
+  if (!entry) {
+    return true;
+  }
+  let v: unknown = entry.value;
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      // stored unquoted
+    }
+  }
+  return v !== 'individual';
+}
+
+/** Mirrors `OSECombatant#groupRaw` for a token that has no group yet. */
+export function oseGroupKey(client: FoundryClient, token: Obj | undefined): string {
+  const actors = (world(client).actors ?? []) as unknown as Obj[];
+  const actor = actors.find((a) => a._id === token?.actorId);
+  if (getPathSafe(actor, 'system.isSlow')) {
+    return 'slow';
+  }
+  switch (token?.disposition) {
+    case -1:
+      return 'red';
+    case 0:
+      return 'purple';
+    case 1:
+      return 'green';
+    default:
+      return 'white';
+  }
+}
+
+function getPathSafe(obj: unknown, path: string): unknown {
+  return path
+    .split('.')
+    .reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Obj)[k] : undefined), obj);
+}
+
+function findToken(
+  client: FoundryClient,
+  sceneId: string | undefined,
+  tokenId: unknown,
+): Obj | undefined {
+  const scenes = (world(client).scenes ?? []) as unknown as Obj[];
+  const pool = sceneId ? scenes.filter((s) => s._id === sceneId) : scenes;
+  for (const s of pool) {
+    const t = embedded(s, 'tokens').find((x) => x._id === tokenId);
+    if (t) {
+      return t;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * OSE group initiative: make sure a CombatantGroup exists for every key in
+ * `keys` (reusing the combat's existing groups by name), roll one d6 per
+ * group (the "slow" group is never rolled, as in OSE) and return
+ * name -> { id, initiative }.
+ */
+async function rollOseGroups(
+  client: FoundryClient,
+  combatId: string,
+  existing: Obj[],
+  keys: string[],
+): Promise<Map<string, { id: string; initiative: number | null }>> {
+  const out = new Map<string, { id: string; initiative: number | null }>();
+  const wanted = [...new Set(keys)];
+  const missing = wanted.filter((k) => !existing.some((g) => g.name === k));
+  let created: Obj[] = [];
+  if (missing.length) {
+    created = ((await client.gmModify('CombatantGroup', 'create', {
+      data: missing.map((name) => ({ name, initiative: null })),
+      parentUuid: `Combat.${combatId}`,
+    })) ?? []) as Obj[];
+  }
+  const all = [...existing, ...created];
+  const updates: Obj[] = [];
+  for (const k of wanted) {
+    const g = all.find((x) => x.name === k);
+    if (!g?._id) {
+      throw new GmToolError(`Could not create OSE initiative group ${k}`);
+    }
+    const initiative = k === 'slow' ? null : evaluateDiceFormula('1d6').total;
+    out.set(k, { id: String(g._id), initiative });
+    if (initiative !== null) {
+      updates.push({ _id: g._id, initiative });
+    }
+  }
+  if (updates.length) {
+    await client.gmModify('CombatantGroup', 'update', {
+      updates,
+      parentUuid: `Combat.${combatId}`,
+    });
+  }
+  return out;
+}
+
 function defaultInitiative(client: FoundryClient): string {
   const systemId = String((world(client).system as Obj | undefined)?.id ?? '');
   return getSystemAdapter(systemId)?.initiativeFormula ?? '1d20';
@@ -130,7 +240,7 @@ export const combatTools: GmToolSpec[] = [
   {
     name: 'start_encounter',
     description:
-      'Create a combat encounter on a scene from token ids (or all non-hidden tokens), optionally roll initiative and begin round 1. Returns the turn order.' +
+      'Create a combat encounter on a scene from token ids (or all non-hidden tokens), optionally roll initiative and begin round 1. OSE uses the system initiative setting: group mode (default) rolls one d6 per side (friendly/hostile/neutral) shared by its members. revealHidden unhides hidden tokens and combatants. Returns the turn order.' +
       WRITE_NOTE,
     inputSchema: {
       type: 'object',
@@ -147,6 +257,10 @@ export const combatTools: GmToolSpec[] = [
           description: 'Initiative formula (default: system adapter, else 1d20)',
         },
         begin: { type: 'boolean', description: 'Start round 1 (default true)' },
+        revealHidden: {
+          type: 'boolean',
+          description: 'Unhide the listed hidden tokens and their combatants (default false)',
+        },
       },
     },
     async run(client, args) {
@@ -165,15 +279,42 @@ export const combatTools: GmToolSpec[] = [
       if (!combatId) {
         throw new GmToolError('Foundry returned no Combat id');
       }
-      const formula = str(args, 'formula', false) ?? defaultInitiative(client);
+      const explicitFormula = str(args, 'formula', false);
+      const formula = explicitFormula ?? defaultInitiative(client);
       const roll = bool(args, 'rollInitiative', true);
-      const data = tokens.map((t) => ({
-        tokenId: t._id,
-        sceneId: scene._id,
-        actorId: t.actorId,
-        hidden: Boolean(t.hidden),
-        ...(roll ? { initiative: evaluateDiceFormula(formula).total } : {}),
-      }));
+      const reveal = bool(args, 'revealHidden', false);
+      const toReveal = reveal ? tokens.filter((t) => t.hidden) : [];
+      if (toReveal.length) {
+        await client.gmModify('Token', 'update', {
+          updates: toReveal.map((t) => ({ _id: t._id, hidden: false })),
+          parentUuid: `Scene.${scene._id}`,
+        });
+      }
+      // OSE group mode: one d6 per side, shared by every member (and the
+      // CombatantGroup OSE's tracker shows). An explicit formula opts out.
+      const grouped = oseGroupInitiative(client) && !explicitFormula;
+      const keyOf = new Map(tokens.map((t) => [t._id, oseGroupKey(client, t)]));
+      const groups = grouped
+        ? await rollOseGroups(client, combatId, [], [...keyOf.values()])
+        : undefined;
+      const data = tokens.map((t) => {
+        const g = groups?.get(keyOf.get(t._id) as string);
+        const initiative = g ? g.initiative : evaluateDiceFormula(formula).total;
+        return {
+          tokenId: t._id,
+          sceneId: scene._id,
+          actorId: t.actorId,
+          hidden: reveal ? false : Boolean(t.hidden),
+          ...(g ? { group: g.id } : {}),
+          ...(roll && initiative !== null ? { initiative } : {}),
+        };
+      });
+      if (groups && !roll) {
+        await client.gmModify('CombatantGroup', 'update', {
+          updates: [...groups.values()].map((g) => ({ _id: g.id, initiative: null })),
+          parentUuid: `Combat.${combatId}`,
+        });
+      }
       await client.gmModify('Combatant', 'create', { data, parentUuid: `Combat.${combatId}` });
       if (bool(args, 'begin', true)) {
         await client.gmModify('Combat', 'update', {
@@ -203,7 +344,8 @@ export const combatTools: GmToolSpec[] = [
     async run(client, args) {
       const c = getCombat(client, str(args, 'combatId', false));
       const ids = strList(args, 'combatantIds');
-      const formula = str(args, 'formula', false) ?? defaultInitiative(client);
+      const explicitFormula = str(args, 'formula', false);
+      const formula = explicitFormula ?? defaultInitiative(client);
       const targets = (c.combatants ?? []).filter((x) =>
         ids.length
           ? ids.includes(String(x._id))
@@ -211,6 +353,33 @@ export const combatTools: GmToolSpec[] = [
       );
       if (!targets.length) {
         return ok('🎲 Nobody needs initiative', turnOrder(client, c));
+      }
+      if (oseGroupInitiative(client) && !explicitFormula) {
+        // Group mode: re-roll each affected side once and give every member
+        // of that side (not just the targets) the same result.
+        const existing = ((c as Obj).groups ?? []) as Obj[];
+        const keyFor = (x: Obj): string => {
+          const named = existing.find((g) => g._id === x.group)?.name;
+          return typeof named === 'string' && named
+            ? named
+            : oseGroupKey(
+                client,
+                findToken(client, String(x.sceneId ?? (c as Obj).scene ?? ''), x.tokenId),
+              );
+        };
+        const groups = await rollOseGroups(client, c._id, existing, targets.map(keyFor));
+        const members = (c.combatants ?? []).filter((x) => groups.has(keyFor(x)));
+        await client.gmModify('Combatant', 'update', {
+          updates: members.map((m) => {
+            const g = groups.get(keyFor(m)) as { id: string; initiative: number | null };
+            return { _id: m._id, group: g.id, initiative: g.initiative };
+          }),
+          parentUuid: `Combat.${c._id}`,
+        });
+        const summary = [...groups.entries()]
+          .map(([k, g]) => `${k} ${g.initiative ?? '-'}`)
+          .join(', ');
+        return ok(`🎲 Group initiative: ${summary}`, turnOrder(client, getCombat(client, c._id)));
       }
       await client.gmModify('Combatant', 'update', {
         updates: targets.map((t) => ({
