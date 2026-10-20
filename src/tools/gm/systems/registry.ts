@@ -1,3 +1,4 @@
+import { ose } from './ose.js';
 import type { SystemRollAdapter } from './types.js';
 
 const adapters = new Map<string, SystemRollAdapter>();
@@ -13,3 +14,5 @@ export function getSystemAdapter(systemId: string | undefined): SystemRollAdapte
 export function listSystemAdapters(): SystemRollAdapter[] {
   return [...adapters.values()];
 }
+
+registerSystemAdapter(ose);
