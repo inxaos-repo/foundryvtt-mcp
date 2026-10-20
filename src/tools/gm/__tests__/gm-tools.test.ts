@@ -13,9 +13,9 @@ function makeWorld() {
   return {
     userId: 'dmagent000000001',
     users: [
-      { _id: 'dmagent000000001', name: 'dm-agent', role: 3 },
+      { _id: 'dmagent000000001', name: 'gm-bot', role: 3 },
       { _id: 'gm00000000000001', name: 'Gamemaster', role: 4 },
-      { _id: 'player0000000001', name: 'Damon', role: 1, character: ID(1) },
+      { _id: 'player0000000001', name: 'Alice', role: 1, character: ID(1) },
     ],
     activeUsers: ['player0000000001'],
     actors: [
@@ -372,7 +372,7 @@ describe('play tools', () => {
     const { client, gmModify } = makeClient();
     await run('post_chat', client, { content: 'Dust falls.' });
     await run('post_chat', client, { content: 'Grr', tokenId: ID(60), style: 'ic' });
-    await run('post_chat', client, { content: 'psst', whisperTo: ['Damon'] });
+    await run('post_chat', client, { content: 'psst', whisperTo: ['Alice'] });
     const msgs = gmModify.mock.calls.map(
       (c) => (c[2] as { data: Array<Record<string, unknown>> }).data[0],
     );
@@ -384,7 +384,7 @@ describe('play tools', () => {
   it('read_chat includes player rolls', async () => {
     const { client } = makeClient();
     const { text } = await run('read_chat', client, {});
-    expect(text).toContain('"author": "Damon"');
+    expect(text).toContain('"author": "Alice"');
     expect(text).toContain('"total": 14');
   });
 
