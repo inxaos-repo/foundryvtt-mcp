@@ -6,7 +6,7 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { DiagnosticsClient } from '../../diagnostics/client.js';
 import type { FoundryClient } from '../../foundry/client.js';
 import { logger } from '../../utils/logger.js';
-import { getTurnOrder } from './combat-order.js';
+import { getTurnOrder, turnOrderContext } from './combat-order.js';
 import { withToolError } from './utils.js';
 
 export async function handleReadResource(
@@ -212,7 +212,12 @@ async function getUsersResource(foundryClient: FoundryClient) {
  */
 async function getCombatResource(foundryClient: FoundryClient) {
   const cached = foundryClient.getCombatState();
-  const combat = cached ? { ...cached, combatants: getTurnOrder(cached) } : cached;
+  const combat = cached
+    ? {
+        ...cached,
+        combatants: getTurnOrder(cached, turnOrderContext(foundryClient.getWorld?.(), cached)),
+      }
+    : cached;
   return {
     contents: [
       {

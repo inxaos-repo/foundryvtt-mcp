@@ -5,6 +5,13 @@
 
 import type { FoundryClient } from '../../foundry/client.js';
 import { evaluateDiceFormula } from '../../foundry/dice-formula.js';
+import type { WorldCombat } from '../../foundry/types.js';
+import {
+  compareCombatants,
+  type TurnOrderContext,
+  turnOrderContext,
+  type WorldCombatant,
+} from '../handlers/combat-order.js';
 import {
   bool,
   embedded,
@@ -26,7 +33,13 @@ import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 
 type CombatObj = Obj & { _id: string; round?: number; turn?: number | null; combatants?: Obj[] };
 
-export function sortTurns(combatants: Obj[]): Obj[] {
+export function sortTurns(combatants: Obj[], ctx?: TurnOrderContext): Obj[] {
+  if (ctx?.systemId === 'ose') {
+    // Same comparator as the legacy handlers + turn_context (OSE tie-break).
+    return [...combatants].sort((a, b) =>
+      compareCombatants(a as unknown as WorldCombatant, b as unknown as WorldCombatant, ctx),
+    );
+  }
   return [...combatants].sort((a, b) => {
     const ia = typeof a.initiative === 'number' ? a.initiative : -Infinity;
     const ib = typeof b.initiative === 'number' ? b.initiative : -Infinity;
@@ -55,8 +68,10 @@ function getCombat(client: FoundryClient, combatId?: string): CombatObj {
 }
 
 function turnOrder(client: FoundryClient, c: CombatObj): Obj {
-  const turns = sortTurns(c.combatants ?? []);
-  const actors = world(client).actors as unknown as Obj[];
+  const w = world(client);
+  const ctx = turnOrderContext(w, c as unknown as WorldCombat);
+  const turns = sortTurns(c.combatants ?? [], ctx);
+  const actors = w.actors as unknown as Obj[];
   return {
     combatId: c._id,
     round: c.round ?? 0,
@@ -66,7 +81,9 @@ function turnOrder(client: FoundryClient, c: CombatObj): Obj {
       index: i,
       current: (c.round ?? 0) > 0 && i === (c.turn ?? 0),
       combatantId: t._id,
-      name: t.name || actors.find((a) => a._id === t.actorId)?.name,
+      name: ctx
+        ? ctx.displayName(t as unknown as WorldCombatant)
+        : t.name || actors.find((a) => a._id === t.actorId)?.name,
       tokenId: t.tokenId,
       initiative: t.initiative ?? null,
       defeated: Boolean(t.defeated),
