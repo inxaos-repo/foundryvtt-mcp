@@ -1,9 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import type { FoundryClient } from '../../../foundry/client.js';
-import { findBlockingWalls, findGridPath, segmentsIntersect } from '../geometry.js';
+import {
+  canOpenDoor,
+  findBlockingWalls,
+  findGridPath,
+  segmentsIntersect,
+  wallsCrossed,
+} from '../geometry.js';
 import { ID, makeClient, makeWorld, run } from './fixtures.js';
 
 describe('geometry', () => {
+  it('canOpenDoor allows closed doors, locked/secret only when forced', () => {
+    const d = (door: number, ds: number) => ({ _id: 'w', c: [0, 0, 0, 1], door, ds });
+    expect(canOpenDoor(d(1, 0))).toBe(true);
+    expect(canOpenDoor(d(1, 1))).toBe(false);
+    expect(canOpenDoor(d(1, 2))).toBe(false);
+    expect(canOpenDoor(d(2, 0))).toBe(false);
+    expect(canOpenDoor(d(0, 0), true)).toBe(false);
+    expect(canOpenDoor(d(1, 2), true)).toBe(true);
+    expect(canOpenDoor(d(2, 0), true)).toBe(true);
+  });
+  it('wallsCrossed lists walls a polyline crosses in order', () => {
+    const a = { _id: 'a', c: [100, 0, 100, 100] };
+    const b = { _id: 'b', c: [0, 200, 300, 200] };
+    const c = { _id: 'c', c: [500, 0, 500, 100] };
+    const hit = wallsCrossed(
+      [b, a, c],
+      [
+        { x: 50, y: 50 },
+        { x: 150, y: 50 },
+        { x: 150, y: 250 },
+      ],
+    );
+    expect(hit.map((w) => w._id)).toEqual(['a', 'b']);
+  });
   it('findGridPath routes around a wall through a gap and refuses an enclosed goal', () => {
     // A wall across the map with a one-square gap at the bottom.
     const walls = [{ _id: 'w1', c: [300, 0, 300, 400], move: 20 }];
@@ -204,6 +234,60 @@ describe('scene tools', () => {
         _movement: { [ID(61)]: expect.objectContaining({ method: 'api' }) },
       }),
     );
+  });
+  it('move_token_checked openDoors opens a closed unlocked door on the route', async () => {
+    const { client, gmModify } = makeClient();
+    const r = await run('move_token_checked', client, {
+      tokenId: ID(61),
+      x: 400,
+      y: 100,
+      openDoors: true,
+    });
+    expect(r.text).toContain(`opened door(s) ${ID(20)}`);
+    expect(gmModify.mock.calls[0]?.slice(0, 2)).toEqual(['Wall', 'update']);
+    expect(gmModify.mock.calls[0]?.[2]).toMatchObject({
+      parentUuid: `Scene.${ID(10)}`,
+      updates: [{ _id: ID(20), ds: 1 }],
+    });
+    expect(gmModify.mock.calls[1]?.slice(0, 2)).toEqual(['Token', 'update']);
+  });
+  it('move_token_checked openDoors leaves locked and secret doors shut unless forceDoors', async () => {
+    for (const door of [
+      { door: 1, ds: 2 },
+      { door: 2, ds: 0 },
+    ]) {
+      const { client, gmModify, w } = makeClient();
+      Object.assign((w.scenes[0] as { walls: object[] }).walls[0]!, door);
+      const r = await run('move_token_checked', client, {
+        tokenId: ID(61),
+        x: 400,
+        y: 100,
+        openDoors: true,
+      });
+      expect(r.text).toContain('Blocked');
+      expect(gmModify).not.toHaveBeenCalled();
+      const f = await run('move_token_checked', client, {
+        tokenId: ID(61),
+        x: 400,
+        y: 100,
+        openDoors: true,
+        forceDoors: true,
+      });
+      expect(f.text).toContain('opened door(s)');
+    }
+  });
+  it('move_token_checked prefers a route that needs no door', async () => {
+    const { client, gmModify, w } = makeClient();
+    // Shorten the closed door so there is a way round it.
+    (w.scenes[0] as { walls: Array<{ c: number[] }> }).walls[0]!.c = [300, 0, 300, 400];
+    const r = await run('move_token_checked', client, {
+      tokenId: ID(61),
+      x: 400,
+      y: 100,
+      openDoors: true,
+    });
+    expect(r.text).not.toContain('opened door');
+    expect(gmModify).toHaveBeenCalledTimes(1);
   });
   it('set_door_state rejects non-doors and maps states', async () => {
     const { client, gmModify } = makeClient();
