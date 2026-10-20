@@ -125,7 +125,12 @@ export function buildTokenMovement(
     ...extra,
   });
   const passed = [
-    ...waypoints.map((w) => waypoint({ ...destination, x: w.x, y: w.y }, { intermediate: true })),
+    // Route corners are marked explicit: Foundry clients skip waypoints that are
+    // intermediate && !explicit when animating, which would make the token
+    // slide in a straight line (through walls) instead of walking the route.
+    ...waypoints.map((w) =>
+      waypoint({ ...destination, x: w.x, y: w.y }, { intermediate: true, explicit: true }),
+    ),
     waypoint(destination),
   ];
   let spaces = 0;

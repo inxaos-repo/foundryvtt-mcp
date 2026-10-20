@@ -114,6 +114,11 @@ export interface GridPathOptions {
   bounds?: { x: number; y: number; width: number; height: number } | undefined;
   /** Upper bound on explored nodes, to cap the cost on large maps. */
   maxNodes?: number;
+  /**
+   * Extra walls to treat as passable even though they block movement now,
+   * e.g. closed doors the mover is allowed to open on the way.
+   */
+  passable?: (w: WallLike) => boolean;
 }
 
 export interface GridPath {
@@ -143,7 +148,9 @@ export function findGridPath(
 ): GridPath | null {
   const size = opts.size;
   const solid = walls
-    .filter((w) => Array.isArray(w.c) && w.c.length >= 4 && blocksMovement(w))
+    .filter(
+      (w) => Array.isArray(w.c) && w.c.length >= 4 && blocksMovement(w) && !opts.passable?.(w),
+    )
     .map((w) => {
       const [x1, y1, x2, y2] = w.c as [number, number, number, number];
       return {
@@ -246,4 +253,41 @@ export function findGridPath(
   }
   points.push(to);
   return { points, steps };
+}
+
+/**
+ * Can a mover open this door on the way? Closed doors can be opened; locked
+ * doors and secret doors only when `force` is set (a GM override).
+ */
+export function canOpenDoor(w: WallLike, force = false): boolean {
+  if (!isDoor(w) || (w.move ?? 20) === 0) {
+    return false;
+  }
+  const ds = w.ds ?? 0;
+  if (ds === 1) {
+    return false;
+  }
+  if (force) {
+    return true;
+  }
+  return ds === 0 && (w.door ?? 0) === 1;
+}
+
+/** Walls among `candidates` crossed by the polyline through `points`, in route order. */
+export function wallsCrossed(candidates: WallLike[], points: Point[]): WallLike[] {
+  const out: WallLike[] = [];
+  for (let n = 1; n < points.length; n++) {
+    const a = points[n - 1] as Point;
+    const b = points[n] as Point;
+    for (const w of candidates) {
+      if (out.includes(w) || !Array.isArray(w.c) || w.c.length < 4) {
+        continue;
+      }
+      const [x1, y1, x2, y2] = w.c as [number, number, number, number];
+      if (segmentsIntersect(a, b, { x: x1, y: y1 }, { x: x2, y: y2 })) {
+        out.push(w);
+      }
+    }
+  }
+  return out;
 }

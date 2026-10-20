@@ -5,6 +5,7 @@
 import type { FoundryClient } from '../../foundry/client.js';
 import { sceneDarkness, sceneGlobalLight } from '../../foundry/client.js';
 import {
+  canOpenDoor,
   DOOR_STATE_VALUES,
   DOOR_TYPES,
   doorState,
@@ -13,6 +14,7 @@ import {
   isDoor,
   type WallLike,
   wallMidpoint,
+  wallsCrossed,
 } from './geometry.js';
 import {
   bool,
@@ -632,7 +634,7 @@ export const sceneTools: GmToolSpec[] = [
   {
     name: 'move_token_checked',
     description:
-      'Move a token to pixel x,y (or by dx/dy grid squares) only if it can walk there: finds a square-by-square route around movement-blocking walls and closed/locked doors (open doors pass). The token moves along that route. Refuses, naming the walls on the straight line, when no route exists unless force=true. Optional maxSteps caps the route length in squares. Approximate: ignores one-way walls, regions and terrain; not line of sight.' +
+      'Move a token to pixel x,y (or by dx/dy grid squares) only if it can walk there: finds a square-by-square route around movement-blocking walls and closed/locked doors (open doors pass). The token walks (animated, visible to players) along that route. With openDoors=true a route through closed, unlocked doors is allowed when no door-free route exists, and those doors are opened as the token reaches them; locked and secret doors stay shut unless forceDoors=true (GM override). Refuses, naming the walls on the straight line, when no route exists unless force=true. Optional maxSteps caps the route length in squares. Approximate: ignores one-way walls, regions and terrain; not line of sight.' +
       WRITE_NOTE,
     inputSchema: {
       type: 'object',
@@ -644,6 +646,15 @@ export const sceneTools: GmToolSpec[] = [
         dx: { type: 'number', description: 'Grid squares to move right (negative = left)' },
         dy: { type: 'number', description: 'Grid squares to move down (negative = up)' },
         force: { type: 'boolean', description: 'Move even if walls block (GM teleport)' },
+        openDoors: {
+          type: 'boolean',
+          description: 'Open closed, unlocked doors on the route if there is no route without them',
+        },
+        forceDoors: {
+          type: 'boolean',
+          description:
+            'With openDoors: also open locked and secret doors on the route (GM override)',
+        },
         maxSteps: {
           type: 'number',
           description: 'Refuse if the walking route is longer than this many squares',
@@ -687,29 +698,56 @@ export const sceneTools: GmToolSpec[] = [
       const padX = Math.ceil((w * pad) / size) * size;
       const padY = Math.ceil((h * pad) / size) * size;
       const bounds = w && h ? { x: padX, y: padY, width: w, height: h } : undefined;
-      const path = force ? null : findGridPath(walls, from, to, { size, bounds });
+      const openDoors = bool(args, 'openDoors', false);
+      const forceDoors = bool(args, 'forceDoors', false);
+      let path = force ? null : findGridPath(walls, from, to, { size, bounds });
+      let doorsToOpen: WallLike[] = [];
+      if (!force && openDoors && (!path || (maxSteps !== undefined && path.steps > maxSteps))) {
+        const openable = walls.filter((w) => canOpenDoor(w, forceDoors));
+        const viaDoors = openable.length
+          ? findGridPath(walls, from, to, {
+              size,
+              bounds,
+              passable: (w) => openable.includes(w),
+            })
+          : null;
+        if (viaDoors && (!path || viaDoors.steps < path.steps)) {
+          path = viaDoors;
+          doorsToOpen = wallsCrossed(openable, viaDoors.points);
+        }
+      }
       if (!force && (!path || (maxSteps !== undefined && path.steps > maxSteps))) {
         const blockers = findBlockingWalls(walls, from, to);
         const why = path
           ? `the shortest walking route is ${path.steps} squares, over maxSteps ${maxSteps}`
-          : 'no walking route exists around the walls and closed doors';
+          : `no walking route exists around the walls and ${openDoors ? (forceDoors ? 'doors' : 'locked or secret doors') : 'closed doors'}`;
         return ok(
-          `🧱 Blocked: ${why}, between ${token.name} and (${x},${y}).${path ? '' : ' Open a door (set_door_state) or'} Pass force=true to move anyway.`,
+          `🧱 Blocked: ${why}, between ${token.name} and (${x},${y}).${path || openDoors ? ' Pass' : ' Pass openDoors=true, open a door (set_door_state), or pass'} force=true to move anyway.`,
           blockers.map((b) => ({ ...summarizeWall(b), midpoint: wallMidpoint(b) })),
         );
       }
       const waypoints = path
         ? path.points.slice(1, -1).map((p) => ({ x: p.x - half.x, y: p.y - half.y }))
         : [];
+      // Open doors before the token reaches them so the walk is not stopped.
+      if (doorsToOpen.length) {
+        await client.gmModify('Wall', 'update', {
+          parentUuid: `Scene.${scene._id}`,
+          updates: doorsToOpen.map((d) => ({ _id: d._id, ds: 1 })),
+        });
+      }
       await tokenUpdate(client, scene._id, [{ _id: token._id, x, y }], {
         [String(token._id)]: waypoints,
       });
       const route = path
         ? ` (${path.steps} square${path.steps === 1 ? '' : 's'}${waypoints.length ? `, ${waypoints.length} turn(s) around walls` : ''})`
         : ' [forced]';
+      const opened = doorsToOpen.length
+        ? `; opened door(s) ${doorsToOpen.map((d) => d._id).join(', ')}`
+        : '';
       return ok(
-        `🚶 Moved ${token.name} (${tx},${ty}) → (${x},${y})${route}`,
-        path ? { waypoints } : undefined,
+        `🚶 Moved ${token.name} (${tx},${ty}) → (${x},${y})${route}${opened}`,
+        path ? { waypoints, openedDoors: doorsToOpen.map((d) => d._id) } : undefined,
       );
     },
   },
