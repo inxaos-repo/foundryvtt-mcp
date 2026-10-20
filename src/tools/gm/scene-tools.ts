@@ -4,7 +4,6 @@
 
 import type { FoundryClient } from '../../foundry/client.js';
 import { sceneDarkness, sceneGlobalLight } from '../../foundry/client.js';
-import type { Tool, ToolContext, ToolResult } from '../base.js';
 import {
   DOOR_STATE_VALUES,
   DOOR_TYPES,
@@ -32,31 +31,7 @@ import {
   world,
 } from './helpers.js';
 
-export const WRITE_NOTE = ' Requires FOUNDRY_WRITE_ENABLED=true.';
-
-export interface GmToolSpec {
-  name: string;
-  description: string;
-  inputSchema: Obj;
-  run: (client: FoundryClient, args: Obj) => Promise<ToolResult>;
-}
-
-export function toTool(spec: GmToolSpec): Tool {
-  return {
-    name: spec.name,
-    description: spec.description,
-    inputSchema: spec.inputSchema,
-    async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
-      try {
-        return await spec.run(ctx.foundryClient, (args ?? {}) as Obj);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: 'text', text: `❌ ${spec.name}: ${message}` }], isError: true };
-      }
-    },
-  };
-}
-
+import { type GmToolSpec, WRITE_NOTE } from './spec.js';
 /** Document types gm_document may touch, with their parent (if embedded). */
 export const DOCUMENT_TYPES: Record<string, { parent?: string[] }> = {
   Scene: {},

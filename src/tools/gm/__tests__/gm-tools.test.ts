@@ -3,9 +3,10 @@ import type { FoundryClient } from '../../../foundry/client.js';
 import { evaluateDiceFormula } from '../../../foundry/dice-formula.js';
 import { getAllTools } from '../../definitions.js';
 import { toolRegistry } from '../../registry.js';
+import { oseCheck, toFoundryRoll } from '../chat-tools.js';
+import { advance, sortTurns } from '../combat-tools.js';
 import { findBlockingWalls, segmentsIntersect } from '../geometry.js';
 import { gmToolSpecs, gmTools } from '../index.js';
-import { advance, oseCheck, sortTurns, toFoundryRoll } from '../play-tools.js';
 
 const ID = (n: number): string => `id${String(n).padStart(14, '0')}`;
 
