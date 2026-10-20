@@ -26,6 +26,13 @@ no tool that evaluates arbitrary JavaScript. Every write requires
 - For embedded documents, `get` ignores `query` and returns the whole
   collection; `gm_document` filters locally.
 - Scene darkness and global light moved under `environment` in v12.
+- Since v13 a token position change is a *movement*: browser clients send all
+  position fields with `diff: false` and an `_movement` record in the
+  operation. Connected clients ignore an x/y update without it (the change is
+  stored and shows only after a reload), so the bridge builds the same record
+  for every token position update, including `gm_document` Token updates.
+- `gm_document` update accepts `data` or `updates` (an object or an array, each
+  with `_id`), or a single object plus `id`.
 - `pullToScene` and `resetFog` have no acknowledgement; `showEntry` does.
 
 ## System roll adapters

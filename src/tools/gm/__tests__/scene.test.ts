@@ -156,7 +156,11 @@ describe('scene tools', () => {
     expect(g2).toHaveBeenCalledWith(
       'Token',
       'update',
-      expect.objectContaining({ updates: [{ _id: ID(61), x: 700, y: 100 }] }),
+      expect.objectContaining({
+        updates: [expect.objectContaining({ _id: ID(61), x: 700, y: 100 })],
+        diff: false,
+        _movement: { [ID(61)]: expect.objectContaining({ method: 'api' }) },
+      }),
     );
   });
   it('set_door_state rejects non-doors and maps states', async () => {

@@ -1,6 +1,6 @@
 /** Shared in-memory world and client doubles for the GM toolkit tests. */
 import { vi } from 'vitest';
-import type { FoundryClient } from '../../../foundry/client.js';
+import { FoundryClient } from '../../../foundry/client.js';
 import { gmTools } from '../index.js';
 
 export const ID = (n: number): string => `id${String(n).padStart(14, '0')}`;
@@ -123,6 +123,7 @@ export function makeClient(w = makeWorld()) {
     gmModify,
     gmGet: vi.fn(async () => []),
     gmEmit: vi.fn(async () => true),
+    updateTokens: FoundryClient.prototype.updateTokens,
   } as unknown as FoundryClient;
   return { client, gmModify, w };
 }

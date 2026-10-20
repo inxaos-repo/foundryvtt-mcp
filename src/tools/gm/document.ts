@@ -34,7 +34,7 @@ export const documentTools: GmToolSpec[] = [
   {
     name: 'gm_document',
     description:
-      'Generic create/update/delete/get for any Foundry document or embedded document (Scene, Token, Wall, AmbientLight, AmbientSound, Note, Tile, Drawing, Region, Actor, Item, ActiveEffect, JournalEntry, JournalEntryPage, RollTable, Combat, Combatant, ChatMessage, Playlist, PlaylistSound…). Use the specific tools first; this is the escape hatch. Embedded types need parentType+parentId. update needs data objects with _id; delete needs ids. Writes require FOUNDRY_WRITE_ENABLED=true.',
+      'Generic create/update/delete/get for any Foundry document or embedded document (Scene, Token, Wall, AmbientLight, AmbientSound, Note, Tile, Drawing, Region, Actor, Item, ActiveEffect, JournalEntry, JournalEntryPage, RollTable, Combat, Combatant, ChatMessage, Playlist, PlaylistSound…). Use the specific tools first; this is the escape hatch. Embedded types need parentType+parentId. update takes data (or its alias updates): object(s) each with _id, or a single object plus id; delete needs ids. Writes require FOUNDRY_WRITE_ENABLED=true.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -49,6 +49,14 @@ export const documentTools: GmToolSpec[] = [
           description:
             'create: object or array of objects; update: object(s) each with _id (dot-notation keys allowed)',
           oneOf: [{ type: 'object' }, { type: 'array', items: { type: 'object' } }],
+        },
+        updates: {
+          description: 'update: alias for data (object or array of objects with _id)',
+          oneOf: [{ type: 'object' }, { type: 'array', items: { type: 'object' } }],
+        },
+        id: {
+          type: 'string',
+          description: 'update: id of the document when data is a single object without _id',
         },
         ids: { type: 'array', items: { type: 'string' }, description: 'delete: ids to delete' },
         query: {
@@ -107,10 +115,20 @@ export const documentTools: GmToolSpec[] = [
         const res = await client.gmModify(type, 'delete', { ...base, ids });
         return ok(`🗑️ Deleted ${res.length} ${type}`, res);
       }
-      const raw = args.data;
-      const list = (Array.isArray(raw) ? raw : raw ? [raw] : []) as Obj[];
+      // `updates` mirrors the Foundry operation field name and is accepted as an
+      // alias of `data` for updates.
+      const raw = args.data ?? (action === 'update' ? args.updates : undefined);
+      let list = (Array.isArray(raw) ? raw : raw ? [raw] : []) as Obj[];
       if (!list.length) {
-        throw new GmToolError(`${action} needs data`);
+        throw new GmToolError(
+          action === 'update'
+            ? 'update needs data (or updates): object(s) each with _id'
+            : `${action} needs data`,
+        );
+      }
+      const id = str(args, 'id', false);
+      if (action === 'update' && id && list.length === 1 && list[0]?._id === undefined) {
+        list = [{ ...(list[0] as Obj), _id: id }];
       }
       if (action === 'create') {
         const res = (await client.gmModify(type, 'create', { ...base, data: list })) as Obj[];
@@ -122,7 +140,11 @@ export const documentTools: GmToolSpec[] = [
       if (!list.every((d) => typeof d._id === 'string')) {
         throw new GmToolError('update data objects must each include _id');
       }
-      const res = await client.gmModify(type, 'update', { ...base, updates: list, diff: true });
+      // Token position changes must be sent as movements to render live.
+      const res =
+        type === 'Token' && parentType === 'Scene' && parentId
+          ? await client.updateTokens(parentId, list)
+          : await client.gmModify(type, 'update', { ...base, updates: list, diff: true });
       return ok(`✏️ Updated ${res.length} ${type}`, res);
     },
   },

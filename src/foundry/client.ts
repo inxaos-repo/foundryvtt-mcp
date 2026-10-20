@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { authenticateFoundry, sessionSocketOptions } from './auth.js';
 import { evaluateDiceFormula } from './dice-formula.js';
+import { buildTokenMovement, isMovementUpdate } from './token-movement.js';
 import type {
   ActorAttributeUpdateResult,
   ActorItemCreateSource,
@@ -1002,6 +1003,63 @@ export class FoundryClient {
   }
 
   /**
+   * Update tokens on a scene. Position changes (x, y, elevation, size, level)
+   * are sent as a movement, with the `_movement` record and full position
+   * that browser clients send, so they are applied live on every connected
+   * client; other fields are sent as a normal diff update.
+   *
+   * @param waypoints Optional intermediate top-left positions per token id.
+   */
+  async updateTokens(
+    sceneId: string,
+    updates: Array<Record<string, unknown>>,
+    waypoints: Record<string, Array<{ x: number; y: number }>> = {},
+  ): Promise<unknown[]> {
+    const parentUuid = `Scene.${sceneId}`;
+    const scene = this.getWorld()?.scenes.find((s) => s._id === sceneId) as
+      | (Record<string, unknown> & { tokens?: Array<Record<string, unknown>> })
+      | undefined;
+    const grid = scene?.grid as Record<string, unknown> | number | undefined;
+    const gridSize = Number((typeof grid === 'object' ? grid?.size : grid) ?? 100);
+    const gridDistance = Number((typeof grid === 'object' ? grid?.distance : undefined) ?? 1);
+    const plain: Array<Record<string, unknown>> = [];
+    const moves: Array<Record<string, unknown>> = [];
+    const movement: Record<string, unknown> = {};
+    for (const u of updates) {
+      const token = scene?.tokens?.find((t) => t._id === u._id);
+      if (!token || !isMovementUpdate(u)) {
+        plain.push(u);
+        continue;
+      }
+      const { update, movement: m } = buildTokenMovement(token, u, this.getWorld()?.userId, {
+        gridSize,
+        gridDistance,
+        waypoints: waypoints[String(u._id)] ?? [],
+      });
+      moves.push(update);
+      movement[String(u._id)] = m;
+    }
+    const out: unknown[] = [];
+    if (plain.length) {
+      out.push(
+        ...(await this.gmModify('Token', 'update', { updates: plain, parentUuid, diff: true })),
+      );
+    }
+    if (moves.length) {
+      out.push(
+        ...(await this.gmModify('Token', 'update', {
+          updates: moves,
+          parentUuid,
+          diff: false,
+          recursive: true,
+          _movement: movement,
+        })),
+      );
+    }
+    return out;
+  }
+
+  /**
    * Generic WRITE through `modifyDocument`, gated by FOUNDRY_WRITE_ENABLED.
    * Foundry acks the requester but only broadcasts to *other* sockets, so the
    * result is applied to the world cache here to keep reads consistent.
@@ -1339,12 +1397,7 @@ export class FoundryClient {
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       throw new Error(`Invalid coordinates: (${x}, ${y}) — x and y must be finite numbers`);
     }
-    const result = await this.modifyDocument('Token', 'update', {
-      updates: [{ _id: tokenId, x, y }],
-      parentUuid: `Scene.${sceneId}`,
-      diff: true,
-      recursive: true,
-    });
+    const result = await this.updateTokens(sceneId, [{ _id: tokenId, x, y }]);
     return result[0];
   }
 
