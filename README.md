@@ -6,7 +6,6 @@
 A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that integrates with FoundryVTT, allowing AI assistants to interact with your tabletop gaming sessions through natural language.
 
 ## Features
-
 - **Dice Rolling** — standard RPG notation with any formula
 - **Data Querying** — search and inspect actors, items, scenes, journals
 - **Game State** — combat tracking, chat messages, user presence
@@ -175,6 +174,7 @@ needs GM/owner permission. Set `FOUNDRY_WRITE_ENABLED=true` to enable them.
 Tools for running a session end to end. Writes require `FOUNDRY_WRITE_ENABLED=true`; there is no code-evaluation tool. See [docs/GM_TOOLS.md](docs/GM_TOOLS.md).
 
 - **Documents:** `gm_document` — get/create/update/delete any document or embedded document
+- **Actors:** `apply_damage`, `set_condition`, `adjust_item_quantity`
 
 ### World
 
@@ -259,7 +259,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 MIT License — see [LICENSE](LICENSE) for details.
 
 ## Support
-
 - **Issues**: [GitHub Issues](https://github.com/laurigates/foundryvtt-mcp/issues)
 - **Discord**: [FoundryVTT Discord](https://discord.gg/foundryvtt) #api-development
 - **Docs**: [FoundryVTT API](https://foundryvtt.com/api/)
