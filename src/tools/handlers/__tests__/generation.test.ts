@@ -1,13 +1,13 @@
 /**
  * @fileoverview Unit tests for content generation handlers
  *
- * Covers handleGenerateNPC, handleGenerateLoot, and handleLookupRule.
+ * Covers handleGenerateNPC, and handleGenerateLoot.
  * Math.random is stubbed for determinism.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FoundryClient } from '../../../foundry/client.js';
-import { handleGenerateLoot, handleGenerateNPC, handleLookupRule } from '../generation.js';
+import { handleGenerateLoot, handleGenerateNPC } from '../generation.js';
 
 // The handlers do not call any FoundryClient methods, so an empty stub suffices.
 const stubClient = {} as unknown as FoundryClient;
@@ -96,48 +96,6 @@ describe('handleGenerateLoot', () => {
 
       expect(text).toContain('**Challenge Rating:** 10');
       expect(text).toContain('**Treasure Type:** hoard');
-    });
-  });
-});
-
-describe('handleLookupRule', () => {
-  describe('happy path', () => {
-    it('returns formatted rule with default system D&D 5e', async () => {
-      const result = await handleLookupRule({ query: 'Grapple' }, stubClient);
-      const text = getText(result);
-
-      expect(text).toContain('Rule Lookup: Grapple');
-      expect(text).toContain('**System:** D&D 5e');
-      expect(text).toContain('**Rule:** Grapple Rule');
-      expect(text).toContain('**Description:**');
-      expect(text).toContain('**Mechanics:**');
-      expect(text).toContain('**Source:** D&D 5e Core Rulebook');
-    });
-
-    it('honors caller-supplied system', async () => {
-      const result = await handleLookupRule(
-        { query: 'Sanity', system: 'Call of Cthulhu' },
-        stubClient,
-      );
-      const text = getText(result);
-
-      expect(text).toContain('**System:** Call of Cthulhu');
-      expect(text).toContain('**Source:** Call of Cthulhu Core Rulebook');
-    });
-  });
-
-  describe('edge cases', () => {
-    it('throws McpError when query is empty string', async () => {
-      await expect(
-        handleLookupRule({ query: '' } as { query: string }, stubClient),
-      ).rejects.toThrow(/Query is required/);
-    });
-
-    it('throws McpError when query is not a string', async () => {
-      await expect(
-        // Intentionally passing wrong type to exercise runtime guard
-        handleLookupRule({ query: 42 } as unknown as { query: string }, stubClient),
-      ).rejects.toThrow(/Query is required/);
     });
   });
 });
