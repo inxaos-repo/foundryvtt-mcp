@@ -5,9 +5,10 @@
  */
 import type { Tool } from '../base.js';
 import { documentTools } from './document.js';
+import { sceneTools } from './scene.js';
 import { type GmToolSpec, toTool } from './tool-spec.js';
 
-export const gmToolSpecs: GmToolSpec[] = [...documentTools];
+export const gmToolSpecs: GmToolSpec[] = [...documentTools, ...sceneTools];
 
 export const gmTools: Tool[] = gmToolSpecs.map(toTool);
 
