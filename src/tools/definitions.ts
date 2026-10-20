@@ -397,25 +397,6 @@ export const generationTools = [
       },
     },
   },
-  {
-    name: 'lookup_rule',
-    description:
-      'Stub: builds a templated placeholder from the query and consults no rules source, so the text it returns carries no rules content. No tool in this server looks rules up.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Rule or mechanic to look up',
-        },
-        system: {
-          type: 'string',
-          description: 'Game system (D&D 5e, Pathfinder, etc.)',
-        },
-      },
-      required: ['query'],
-    },
-  },
 ];
 
 /**

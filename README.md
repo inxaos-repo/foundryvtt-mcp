@@ -189,7 +189,7 @@ Tools for running a session end to end. Writes require `FOUNDRY_WRITE_ENABLED=tr
   unsupported notation (`4d6kh3`, `1d20r1`, `*`) rejected rather than dropped.
   Parentheses are the one transport difference: FoundryVTT evaluates them when
   `FOUNDRY_API_KEY` is set, the local roller rejects them otherwise
-- `lookup_rule` — **stub**: returns a templated placeholder, consults no rules source
+- `lookup_rule` — search world journals and JournalEntry compendium packs for rules text
 
 ### Content Generation
 

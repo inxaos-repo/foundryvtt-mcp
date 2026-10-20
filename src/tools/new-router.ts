@@ -20,7 +20,7 @@ import {
   handleGetSystemHealth,
   handleSearchLogs,
 } from './handlers/diagnostics.js';
-import { handleGenerateLoot, handleGenerateNPC, handleLookupRule } from './handlers/generation.js';
+import { handleGenerateLoot, handleGenerateNPC } from './handlers/generation.js';
 import { handleSearchItems } from './handlers/items.js';
 import { handleReadResource } from './handlers/resources.js';
 import { handleGetSceneInfo } from './handlers/scenes.js';
@@ -103,11 +103,6 @@ async function routeLegacyTool(
         args as { challengeRating?: number; treasureType?: string },
         foundryClient,
       );
-    case 'lookup_rule':
-      if (!('query' in args) || typeof args.query !== 'string') {
-        throw new Error('Missing required parameter: query');
-      }
-      return handleLookupRule(args as { query: string; system?: string }, foundryClient);
 
     // Diagnostics tools
     case 'get_recent_logs':
