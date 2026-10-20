@@ -170,6 +170,12 @@ needs GM/owner permission. Set `FOUNDRY_WRITE_ENABLED=true` to enable them.
 - `create_journal_entry` — create a journal entry with one or more text pages
   (GM-only by default; pass `visibility` to let players read it)
 
+### GM Toolkit
+
+Tools for running a session end to end. Writes require `FOUNDRY_WRITE_ENABLED=true`; there is no code-evaluation tool. See [docs/GM_TOOLS.md](docs/GM_TOOLS.md).
+
+- **Documents:** `gm_document` — get/create/update/delete any document or embedded document
+
 ### World
 
 - `search_world` — full-text search across all game entities
