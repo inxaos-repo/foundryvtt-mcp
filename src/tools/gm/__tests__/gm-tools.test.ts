@@ -318,6 +318,22 @@ describe('scene tools', () => {
     expect(ok.text).toContain('Updated 1 Actor');
   });
 
+  it('gm_document get filters embedded results by query', async () => {
+    const { client } = makeClient();
+    (client as unknown as { gmGet: ReturnType<typeof vi.fn> }).gmGet.mockResolvedValueOnce([
+      { _id: 'a', ds: 0 },
+      { _id: 'b', ds: 2 },
+    ]);
+    const r = await run('gm_document', client, {
+      action: 'get',
+      documentType: 'Wall',
+      parentType: 'Scene',
+      parentId: ID(10),
+      query: { _id: 'b' },
+    });
+    expect(r.text).toContain('1 Wall document(s)');
+  });
+
   it('set_scene_darkness writes environment.darknessLevel', async () => {
     const { client, gmModify } = makeClient();
     await run('set_scene_darkness', client, { darkness: 0.75 });
