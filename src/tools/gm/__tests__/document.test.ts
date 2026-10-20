@@ -1,5 +1,5 @@
 import { describe, expect, it, type vi } from 'vitest';
-import { ID, makeClient, run } from './fixtures.js';
+import { ID, makeClient, makeWorld, run } from './fixtures.js';
 
 describe('gm_document', () => {
   it('gm_document requires parent for embedded types', async () => {
@@ -82,5 +82,108 @@ describe('gm_document', () => {
         _movement: { [ID(61)]: expect.objectContaining({ method: 'api' }) },
       }),
     );
+  });
+});
+
+describe('gm_document script macro guard', () => {
+  const withEnv = async (value: string | undefined, fn: () => Promise<void>) => {
+    const prev = process.env.FOUNDRY_ALLOW_SCRIPT_MACROS;
+    if (value === undefined) {
+      delete process.env.FOUNDRY_ALLOW_SCRIPT_MACROS;
+    } else {
+      process.env.FOUNDRY_ALLOW_SCRIPT_MACROS = value;
+    }
+    try {
+      await fn();
+    } finally {
+      if (prev === undefined) {
+        delete process.env.FOUNDRY_ALLOW_SCRIPT_MACROS;
+      } else {
+        process.env.FOUNDRY_ALLOW_SCRIPT_MACROS = prev;
+      }
+    }
+  };
+  const macroWorld = () => {
+    const w = makeWorld() as ReturnType<typeof makeWorld> & { macros: unknown[] };
+    w.macros = [
+      { _id: ID(80), name: 'Say hi', type: 'chat', command: 'hi' },
+      { _id: ID(81), name: 'Code', type: 'script', command: 'console.log(1)' },
+    ];
+    return w;
+  };
+
+  it('refuses to create script macros by default but allows chat macros', async () => {
+    await withEnv(undefined, async () => {
+      const { client, gmModify } = makeClient(macroWorld());
+      const bad = await run('gm_document', client, {
+        action: 'create',
+        documentType: 'Macro',
+        data: { name: 'x', type: 'script', command: 'alert(1)' },
+      });
+      expect(bad.res.isError).toBe(true);
+      expect(bad.text).toContain('FOUNDRY_ALLOW_SCRIPT_MACROS');
+      expect(gmModify).not.toHaveBeenCalled();
+      const good = await run('gm_document', client, {
+        action: 'create',
+        documentType: 'Macro',
+        data: { name: 'y', type: 'chat', command: '/roll 1d20' },
+      });
+      expect(good.text).toContain('Created 1 Macro');
+    });
+  });
+
+  it('refuses updates that turn a macro into a script or edit a script macro', async () => {
+    await withEnv('false', async () => {
+      const { client } = makeClient(macroWorld());
+      const toScript = await run('gm_document', client, {
+        action: 'update',
+        documentType: 'Macro',
+        data: { _id: ID(80), type: 'script' },
+      });
+      expect(toScript.res.isError).toBe(true);
+      const editScript = await run('gm_document', client, {
+        action: 'update',
+        documentType: 'Macro',
+        data: { _id: ID(81), command: 'evil()' },
+      });
+      expect(editScript.res.isError).toBe(true);
+      const unknown = await run('gm_document', client, {
+        action: 'update',
+        documentType: 'Macro',
+        data: { _id: ID(89), command: 'x' },
+      });
+      expect(unknown.res.isError).toBe(true);
+      // Renaming a script macro and editing a chat macro are fine.
+      const rename = await run('gm_document', client, {
+        action: 'update',
+        documentType: 'Macro',
+        data: { _id: ID(81), name: 'Renamed' },
+      });
+      expect(rename.text).toContain('Updated 1 Macro');
+      const chat = await run('gm_document', client, {
+        action: 'update',
+        documentType: 'Macro',
+        data: { _id: ID(80), command: '/roll 2d6' },
+      });
+      expect(chat.text).toContain('Updated 1 Macro');
+    });
+  });
+
+  it('allows script macros when FOUNDRY_ALLOW_SCRIPT_MACROS=true', async () => {
+    await withEnv('true', async () => {
+      const { client } = makeClient(macroWorld());
+      const r = await run('gm_document', client, {
+        action: 'create',
+        documentType: 'Macro',
+        data: { name: 'x', type: 'script', command: 'ui.notifications.info(1)' },
+      });
+      expect(r.text).toContain('Created 1 Macro');
+      const u = await run('gm_document', client, {
+        action: 'update',
+        documentType: 'Macro',
+        data: { _id: ID(81), command: 'y()' },
+      });
+      expect(u.text).toContain('Updated 1 Macro');
+    });
   });
 });
