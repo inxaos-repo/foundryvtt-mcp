@@ -56,12 +56,17 @@ const sceneIdProp = {
   sceneId: { type: 'string', description: 'Scene id or name (default: the active scene)' },
 };
 
-function tokenUpdate(client: FoundryClient, sceneId: string, updates: Obj[]): Promise<unknown[]> {
-  return client.gmModify('Token', 'update', {
-    updates,
-    parentUuid: `Scene.${sceneId}`,
-    diff: true,
-  });
+/**
+ * Token updates go through {@link FoundryClient.updateTokens} so that position
+ * changes are sent as movements and render live for connected players.
+ */
+function tokenUpdate(
+  client: FoundryClient,
+  sceneId: string,
+  updates: Obj[],
+  waypoints?: Record<string, Array<{ x: number; y: number }>>,
+): Promise<unknown[]> {
+  return client.updateTokens(sceneId, updates, waypoints);
 }
 
 function summarizeToken(t: Obj, w: ReturnType<typeof world>): Obj {
