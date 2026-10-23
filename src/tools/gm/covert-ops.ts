@@ -4,6 +4,7 @@
  */
 
 import { evaluateDiceFormula } from '../../foundry/dice-formula.js';
+import { covertActor } from './covert-bridge.js';
 import { GmToolError, num, type Obj, ok, resolveTarget, str, world } from './helpers.js';
 import { COVERT_OPS_ID, covertOpsSummary } from './systems/covert-ops.js';
 import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
@@ -35,12 +36,7 @@ export const covertOpsTools: GmToolSpec[] = [
       }
       const action = str(args, 'action') as string;
       const t = resolveTarget(client, args);
-      const delta = (t.unlinked ? (t.token?.delta as Obj | undefined)?.system : undefined) as
-        | Obj
-        | undefined;
-      const actor = delta
-        ? { ...t.actor, system: mergeDeep((t.actor.system ?? {}) as Obj, delta) }
-        : t.actor;
+      const actor = await covertActor(client, t);
       const s = covertOpsSummary(actor as Obj) as Obj & {
         actionDice: { value: number; die: number };
       };
@@ -85,14 +81,3 @@ export const covertOpsTools: GmToolSpec[] = [
     },
   },
 ];
-
-function mergeDeep(a: Obj, b: Obj): Obj {
-  const out: Obj = { ...a };
-  for (const [k, v] of Object.entries(b)) {
-    out[k] =
-      v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object'
-        ? mergeDeep(a[k] as Obj, v as Obj)
-        : v;
-  }
-  return out;
-}

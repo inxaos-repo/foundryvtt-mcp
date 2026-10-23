@@ -1,8 +1,10 @@
 import type { FoundryClient } from '../../foundry/client.js';
+
 /**
  * Actor state tools: hit points, conditions and inventory quantities.
  */
 
+import { bridgeRequest } from './covert-bridge.js';
 import {
   bool,
   embedded,
@@ -17,7 +19,7 @@ import {
   str,
   world,
 } from './helpers.js';
-import { COVERT_OPS_ID } from './systems/covert-ops.js';
+import { COVERT_OPS_ID, covertArmor } from './systems/covert-ops.js';
 import { getSystemAdapter } from './systems/registry.js';
 import type { ConditionSupport } from './systems/types.js';
 import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
@@ -265,21 +267,42 @@ export async function writeFields(
 }
 
 /**
- * Vitality/wounds damage for covert-ops-d20, matching the system's combat
- * rules (module/combat/damage.mjs, headless clients cannot call it): a normal
- * hit comes off vitality; damage beyond the vitality left is lost (it does not
- * spill into wounds); once vitality is 0, hits go to wounds. toWounds
- * (critical hits) goes straight to wounds. Negative amount heals vitality (or
- * wounds with toWounds). Down at 0 wounds or fewer.
- * Not modelled here (use the in-Foundry damage card): standard NPC Damage
- * saves, damage reduction, massive damage (25+/50+), subdual and stress.
+ * Fallback vitality/wounds damage for covert-ops-d20 when no GM browser is
+ * connected to run the system's own rules (module/combat/damage.mjs via
+ * module/bridge/derived-cache.mjs). Damage reduction (worn armor DR for the
+ * attack kind, or the actor's DR override, minus AP) is applied first; a normal
+ * hit comes off vitality (excess is lost); once vitality is 0, hits go to
+ * wounds. toWounds (critical hits) goes straight to wounds. Negative amount
+ * heals. Down at 0 wounds or fewer. Not modelled here: standard NPC Damage
+ * saves, massive damage, subdual and stress (these need the GM browser).
  */
+export function covertDR(t: ReturnType<typeof resolveTarget>, attack: string, ap: number): number {
+  const delta = (t.token?.delta ?? {}) as Obj;
+  const flags = (getPath(delta, `flags.${COVERT_OPS_ID}.combat`) ??
+    getPath(t.actor, `flags.${COVERT_OPS_ID}.combat`) ??
+    {}) as Obj;
+  const items = (delta.items as Obj[] | undefined) ?? (t.actor.items as Obj[] | undefined) ?? [];
+  const armor = covertArmor({ items });
+  const override = flags.dr !== undefined && flags.dr !== null && flags.dr !== '';
+  const base = override
+    ? Number(flags.dr) || 0
+    : attack === 'melee' || attack === 'ranged'
+      ? armor.dr[attack]
+      : (armor.dyn as number);
+  return Math.max(0, base - Math.max(0, ap));
+}
+
 export async function applyCovertDamage(
   client: FoundryClient,
   t: ReturnType<typeof resolveTarget>,
   amount: number,
   toWounds: boolean,
+  dr = 0,
 ) {
+  const raw = amount;
+  if (amount > 0) {
+    amount = Math.max(0, amount - dr);
+  }
   const vp = readField(t, 'system.vitality.value');
   const vpMax = readField(t, 'system.vitality.max');
   const wp = readField(t, 'system.wounds.value');
@@ -312,6 +335,7 @@ export async function applyCovertDamage(
       wounds: { before: wp, after: nw, max: wpMax },
       down,
       defeated,
+      ...(raw > 0 ? { raw, dr, rules: 'bridge fallback (no GM browser connected)' } : {}),
     },
   );
 }
@@ -333,7 +357,20 @@ export const actorTools: GmToolSpec[] = [
         toWounds: {
           type: 'boolean',
           description:
-            'covert-ops-d20 only: damage goes straight to wounds (critical hit). Otherwise vitality, or wounds once vitality is 0 (excess is not carried over). Standard NPCs (no vitality) resolve damage with a Damage save: use the damage card in Foundry.',
+            'covert-ops-d20 only: damage goes straight to wounds (critical hit). Otherwise vitality, or wounds once vitality is 0 (excess is not carried over). Standard NPCs resolve damage with a Damage save (needs a GM browser connected).',
+        },
+        attack: {
+          type: 'string',
+          enum: ['melee', 'ranged'],
+          description: 'covert-ops-d20: attack kind, selects worn armor DR (melee or ranged)',
+        },
+        ap: { type: 'number', description: 'covert-ops-d20: armor piercing (reduces DR)' },
+        ignoreDR: { type: 'boolean', description: 'covert-ops-d20: skip damage reduction' },
+        critDice: { type: 'number', description: 'covert-ops-d20: critical multiplier dice' },
+        blast: { type: 'boolean', description: 'covert-ops-d20: blast damage' },
+        damageType: {
+          type: 'string',
+          description: 'covert-ops-d20: damage type (lethal, subdual, stress, ...)',
         },
       },
     },
@@ -344,16 +381,56 @@ export const actorTools: GmToolSpec[] = [
         if (amount === undefined) {
           throw new GmToolError('covert-ops-d20: pass amount (negative heals)');
         }
+        const toWounds = bool(args, 'toWounds', false) ?? false;
+        const attack = str(args, 'attack', false) ?? '';
+        const ap = num(args, 'ap', false) ?? 0;
+        const ignoreDR = bool(args, 'ignoreDR', false) ?? false;
+        if (amount > 0) {
+          const res = await bridgeRequest(client, t, {
+            op: 'damage',
+            amount,
+            attack,
+            ap,
+            ignoreDR,
+            critical: toWounds,
+            critDice: num(args, 'critDice', false) ?? 1,
+            blast: bool(args, 'blast', false) ?? false,
+            type: str(args, 'damageType', false) ?? '',
+            label: t.token?.name ?? t.actor.name,
+          });
+          if (res) {
+            if (!res.ok) {
+              throw new GmToolError(
+                `covert-ops-d20 damage rules failed: ${res.error ?? 'unknown'}`,
+              );
+            }
+            const name = String(t.token?.name ?? t.actor.name);
+            return ok(`❤️ ${name}: ${(res.lines ?? []).join(' ')}`, {
+              lines: res.lines ?? [],
+              damage: res.damage ?? 0,
+              ouch: res.ouch ?? null,
+              vitality: (res.derived as Obj | undefined)?.vitality,
+              wounds: (res.derived as Obj | undefined)?.wounds,
+              rules: 'system (GM browser)',
+            });
+          }
+        }
         if (
           amount > 0 &&
           String(t.actor.type) === 'npc' &&
           readField(t, 'system.vitality.max') <= 0
         ) {
           throw new GmToolError(
-            'covert-ops-d20: standard NPCs (no vitality) take damage through a Damage save; apply it with the damage card in Foundry',
+            'covert-ops-d20: standard NPCs (no vitality) take damage through a Damage save, which needs a GM browser connected to Foundry (or use the damage card in Foundry)',
           );
         }
-        return applyCovertDamage(client, t, amount, bool(args, 'toWounds', false) ?? false);
+        return applyCovertDamage(
+          client,
+          t,
+          amount,
+          toWounds,
+          ignoreDR ? 0 : covertDR(t, attack, ap),
+        );
       }
       const path = hpPath(t.actor);
       const delta = (t.token?.delta ?? {}) as Obj;
