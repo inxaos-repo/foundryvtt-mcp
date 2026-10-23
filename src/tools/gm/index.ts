@@ -8,6 +8,7 @@ import { actorTools } from './actor.js';
 import { chatTools } from './chat.js';
 import { combatTools } from './combat.js';
 import { compendiumTools } from './compendium.js';
+import { covertOpsTools } from './covert-ops.js';
 import { documentTools } from './document.js';
 import { lookupTools } from './lookup.js';
 import { mediaTools } from './media.js';
@@ -25,6 +26,7 @@ export const gmToolSpecs: GmToolSpec[] = [
   ...chatTools,
   ...rollTableTools,
   ...systemRollTools,
+  ...covertOpsTools,
   ...combatTools,
   ...actorTools,
   ...mediaTools,

@@ -236,6 +236,25 @@ function defaultInitiative(client: FoundryClient): string {
   return getSystemAdapter(systemId)?.initiativeFormula ?? '1d20';
 }
 
+/** Initiative for one actor: the formula plus the adapter's per-actor bonus unless a formula was given. */
+function initiativeFor(
+  client: FoundryClient,
+  formula: string,
+  explicit: boolean,
+  actorId: unknown,
+): number {
+  const total = evaluateDiceFormula(formula).total;
+  if (explicit) {
+    return total;
+  }
+  const systemId = String((world(client).system as Obj | undefined)?.id ?? '');
+  const bonusFn = getSystemAdapter(systemId)?.initiativeBonus;
+  const actor = bonusFn
+    ? ((world(client).actors ?? []) as unknown as Obj[]).find((a) => a._id === actorId)
+    : undefined;
+  return actor && bonusFn ? total + bonusFn(actor) : total;
+}
+
 export const combatTools: GmToolSpec[] = [
   {
     name: 'start_encounter',
@@ -299,7 +318,9 @@ export const combatTools: GmToolSpec[] = [
         : undefined;
       const data = tokens.map((t) => {
         const g = groups?.get(keyOf.get(t._id) as string);
-        const initiative = g ? g.initiative : evaluateDiceFormula(formula).total;
+        const initiative = g
+          ? g.initiative
+          : initiativeFor(client, formula, Boolean(explicitFormula), t.actorId);
         return {
           tokenId: t._id,
           sceneId: scene._id,
@@ -384,7 +405,7 @@ export const combatTools: GmToolSpec[] = [
       await client.gmModify('Combatant', 'update', {
         updates: targets.map((t) => ({
           _id: t._id,
-          initiative: evaluateDiceFormula(formula).total,
+          initiative: initiativeFor(client, formula, Boolean(explicitFormula), t.actorId),
         })),
         parentUuid: `Combat.${c._id}`,
       });
