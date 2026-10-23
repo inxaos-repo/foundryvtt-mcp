@@ -31,6 +31,11 @@ export const systemRollTools: GmToolSpec[] = [
         },
         variant: { type: 'string', description: 'Adapter variant, e.g. melee or missile' },
         modifier: { type: 'number' },
+        actionDice: {
+          type: 'number',
+          description:
+            'Spend this many action dice and add them to the roll (systems with action dice, e.g. covert-ops-d20)',
+        },
         ...rollModeProp,
       },
       required: ['kind'],
@@ -80,6 +85,24 @@ export const systemRollTools: GmToolSpec[] = [
       } catch (err) {
         throw new GmToolError(err instanceof Error ? err.message : String(err));
       }
+      const spend = num(args, 'actionDice', false) ?? 0;
+      let pool: { value: number; die: number; path: string } | undefined;
+      if (spend > 0) {
+        pool = adapter.actionDie?.(actor);
+        if (!pool) {
+          throw new GmToolError(`${adapter.systemId} has no action dice`);
+        }
+        if (!Number.isInteger(spend) || spend > pool.value) {
+          throw new GmToolError(
+            `${actor.name} has ${pool.value} action dice; cannot spend ${spend}`,
+          );
+        }
+        chk = {
+          ...chk,
+          formula: `${chk.formula} + ${spend}d${pool.die}`,
+          label: `${chk.label} (+${spend} action ${spend === 1 ? 'die' : 'dice'})`,
+        };
+      }
       const pre = evaluateDiceFormula(chk.formula);
       const natural = pre.terms.find((t) => t.kind === 'dice')?.rolls?.[0] ?? 0;
       const verdict = chk.evaluate(pre.total, natural);
@@ -105,11 +128,25 @@ export const systemRollTools: GmToolSpec[] = [
         msg.blind = true;
       }
       await client.gmModify('ChatMessage', 'create', { data: [msg] });
-      return ok(`🎲 ${name}: ${chk.label} → ${pre.total} (${pre.breakdown}) — ${verdict}`, {
-        total: pre.total,
-        natural,
-        verdict,
-      });
+      let actionDiceLeft: number | undefined;
+      if (pool) {
+        // Action dice belong to the actor (agents are linked), so spend from it.
+        actionDiceLeft = pool.value - spend;
+        await client.gmModify('Actor', 'update', {
+          updates: [{ _id: actor._id, [pool.path]: actionDiceLeft }],
+          diff: true,
+        });
+      }
+      return ok(
+        `🎲 ${name}: ${chk.label} → ${pre.total} (${pre.breakdown}) — ${verdict}` +
+          (actionDiceLeft !== undefined ? ` [action dice left: ${actionDiceLeft}]` : ''),
+        {
+          total: pre.total,
+          natural,
+          verdict,
+          ...(actionDiceLeft !== undefined ? { actionDiceLeft } : {}),
+        },
+      );
     },
   },
 ];

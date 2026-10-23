@@ -1,3 +1,4 @@
+import { covertOps } from './covert-ops.js';
 import { ose } from './ose.js';
 import { pf2eAdapter } from './pf2e.js';
 import type { SystemRollAdapter } from './types.js';
@@ -18,3 +19,4 @@ export function listSystemAdapters(): SystemRollAdapter[] {
 
 registerSystemAdapter(ose);
 registerSystemAdapter(pf2eAdapter);
+registerSystemAdapter(covertOps);

@@ -46,6 +46,14 @@ export interface SystemRollAdapter {
    * value and remove those items.
    */
   readonly conditions?: ConditionSupport;
+  /** Per-actor initiative bonus added to the default formula (d20 systems). */
+  initiativeBonus?(actor: Record<string, unknown>): number;
+  /**
+   * Systems with spendable bonus dice (e.g. action dice): current pool, die
+   * size and the actor field holding the count. system_roll's actionDice arg
+   * adds that many dice to the roll and decrements the pool.
+   */
+  actionDie?(actor: Record<string, unknown>): { value: number; die: number; path: string };
   buildCheck(
     actor: Record<string, unknown>,
     kind: string,
