@@ -1,9 +1,9 @@
 /**
  * Covert Ops d20 (system id `covert-ops-d20`), a d20 espionage system.
  *
- * The headless bridge only sees stored (source) actor data, so every derived
- * value the system computes in prepareDerivedData (ability mods, skill/save
- * totals, Defense, attack bonuses) is recomputed here with the same formulas.
+ * The headless bridge only sees stored (source) actor data. The system's GM
+ * browser client caches prepared values in flags.covert-ops-d20.derived
+ * (module/bridge/derived-cache.mjs); without it values are recomputed here.
  * Checks are d20 + bonus; a natural roll at or above the threat range is a
  * threat, at or below the error range an error. Action dice add NdX to a roll.
  */
@@ -36,24 +36,65 @@ export const abilityMod = (score: unknown): number => Math.floor((n(score) - 10)
 
 const signed = (m: number): string => (m ? (m > 0 ? ` + ${m}` : ` - ${-m}`) : '');
 
-/** Derived numbers for an actor, computed from its stored system data. */
+/** Items embedded on the actor (token delta items win for unlinked tokens). */
+const itemsOf = (actor: Obj): Obj[] => ((actor.items as Obj[] | undefined) ?? []).filter(Boolean);
+
+/** Worn armor: best DR per attack kind, summed Defense modifier, worst check penalty. */
+export function covertArmor(actor: Obj): Obj & { dr: { melee: number; ranged: number } } {
+  const worn = itemsOf(actor).filter(
+    (i) => i.type === 'armor' && Boolean(getPath(i, 'system.equipped')),
+  );
+  const best = (k: string): number =>
+    worn.reduce((m, i) => Math.max(m, n(getPath(i, `system.dr.${k}`))), 0);
+  return {
+    worn: worn.length,
+    defenseMod: worn.reduce((s, i) => s + n(getPath(i, 'system.defenseMod')), 0),
+    checkPenalty: Math.min(0, ...worn.map((i) => n(getPath(i, 'system.checkPenalty')))),
+    dr: { melee: best('melee'), ranged: best('ranged') },
+    /** DR when the attack kind is unknown: per item the lower of melee/ranged (as the system). */
+    dyn: worn.reduce(
+      (m, i) =>
+        Math.max(m, Math.min(n(getPath(i, 'system.dr.melee')), n(getPath(i, 'system.dr.ranged')))),
+      0,
+    ),
+  };
+}
+
+/**
+ * Derived numbers for an actor. Prefers the snapshot the system's GM client
+ * caches in flags.covert-ops-d20.derived (exact: classes progression, feat
+ * effects, origins, armor). Without it, recomputes from stored data
+ * (source "recomputed"; class-table progression is not modelled there).
+ */
 export function covertOpsSummary(actor: Obj): Obj {
   const sys = (actor.system ?? {}) as Obj;
-  const mod = (a: string): number => abilityMod(getPath(sys, `abilities.${a}.value`) ?? 10);
+  const cached = getPath(actor, `flags.${COVERT_OPS_ID}.derived`) as Obj | undefined;
+  if (cached && n(cached.v) === 1) {
+    return { name: actor.name, type: actor.type, ...cached, source: 'derived' };
+  }
+  const origins = itemsOf(actor).filter((i) => i.type === 'origin');
+  const score = (a: string): number =>
+    n(getPath(sys, `abilities.${a}.value`), 10) +
+    origins.reduce((s, o) => s + n(getPath(o, `system.abilityAdjustments.${a}`)), 0) +
+    n(getPath(sys, `abilities.${a}.bonus`));
+  const mod = (a: string): number => abilityMod(score(a));
+  const armor = covertArmor(actor);
   const abilities = Object.fromEntries(
     COD_ABILITIES.map((a) => [
       a,
-      { score: n(getPath(sys, `abilities.${a}.value`), 10), mod: mod(a) },
+      { score: score(a), base: n(getPath(sys, `abilities.${a}.value`), 10), mod: mod(a) },
     ]),
   );
   const skills: Obj = {};
   for (const [key, raw] of Object.entries((sys.skills ?? {}) as Record<string, Obj>)) {
     const ability = String(raw.ability ?? 'int');
+    const acp = ['str', 'dex'].includes(ability) ? (armor.checkPenalty as number) : 0;
     skills[key] = {
-      total: Math.floor(n(raw.ranks)) + mod(ability) + n(raw.misc),
+      total: Math.floor(n(raw.ranks)) + mod(ability) + n(raw.misc) + n(raw.bonus) + acp,
       ranks: n(raw.ranks),
       ability,
       ...(raw.focus ? { focus: raw.focus } : {}),
+      ...(acp ? { armorPenalty: acp } : {}),
       threat: n(raw.threat, 20),
       error: n(raw.error, 1),
     };
@@ -61,23 +102,37 @@ export function covertOpsSummary(actor: Obj): Obj {
   const saves = Object.fromEntries(
     Object.entries(COD_SAVES).map(([k, a]) => [
       k,
-      n(getPath(sys, `saves.${k}.base`)) + mod(a) + n(getPath(sys, `saves.${k}.misc`)),
+      n(getPath(sys, `saves.${k}.base`)) +
+        mod(a) +
+        n(getPath(sys, `saves.${k}.misc`)) +
+        n(getPath(sys, `saves.${k}.bonus`)),
     ]),
   );
   const bab = n(sys.bab);
   const level = n(sys.level, 1);
-  return {
+  const flag = (getPath(actor, `flags.${COVERT_OPS_ID}.combat`) ?? {}) as Obj;
+  const vitMax = n(getPath(sys, 'vitality.max')) + n(getPath(sys, 'vitality.bonus'));
+  const out: Obj = {
     name: actor.name,
     type: actor.type,
     level,
     className: sys.className ?? '',
+    progression: sys.progression ?? 'manual',
     abilities,
     skills,
     saves,
     defense:
-      10 + n(getPath(sys, 'defense.classBonus')) + mod('dex') + n(getPath(sys, 'defense.misc')),
+      10 +
+      n(getPath(sys, 'defense.classBonus')) +
+      mod('dex') +
+      n(getPath(sys, 'defense.misc')) +
+      n(getPath(sys, 'defense.bonus')) +
+      (armor.defenseMod as number),
     initiative:
-      n(getPath(sys, 'initiative.classBonus')) + mod('dex') + n(getPath(sys, 'initiative.misc')),
+      n(getPath(sys, 'initiative.classBonus')) +
+      mod('dex') +
+      n(getPath(sys, 'initiative.misc')) +
+      n(getPath(sys, 'initiative.bonus')),
     bab,
     attack: { melee: bab + mod('str'), ranged: bab + mod('dex') },
     attackRange: {
@@ -85,16 +140,29 @@ export function covertOpsSummary(actor: Obj): Obj {
       error: n(getPath(sys, 'attackRange.error'), 1),
     },
     checks: Object.fromEntries(Object.entries(COD_CHECKS).map(([k, a]) => [k, level + mod(a)])),
-    vitality: {
-      value: n(getPath(sys, 'vitality.value')),
-      max: n(getPath(sys, 'vitality.max')),
+    vitality: { value: n(getPath(sys, 'vitality.value')), max: vitMax },
+    wounds: {
+      value: n(getPath(sys, 'wounds.value')),
+      max: n(getPath(sys, 'wounds.max')) + n(getPath(sys, 'wounds.bonus')),
     },
-    wounds: { value: n(getPath(sys, 'wounds.value')), max: n(getPath(sys, 'wounds.max')) },
     actionDice: {
       value: n(getPath(sys, 'actionDice.value')),
       die: n(getPath(sys, 'actionDice.die'), 4),
     },
+    armor,
+    combat: {
+      standard: flag.standard ?? (actor.type === 'npc' && !(vitMax > 0)),
+      tough: Boolean(flag.tough),
+      damageSave: Number.isFinite(flag.damageSave) ? n(flag.damageSave) : (saves.fort ?? 0),
+      dr: flag.dr !== undefined && flag.dr !== null && flag.dr !== '' ? n(flag.dr) : null,
+    },
+    source: 'recomputed',
   };
+  if (out.progression === 'classes') {
+    out.approximate =
+      'classes progression: level/BAB/saves/Defense/vitality come from class tables; connect a GM browser for exact values';
+  }
+  return out;
 }
 
 /** Verdict text for a d20 check with threat/error ranges and an optional DC. */

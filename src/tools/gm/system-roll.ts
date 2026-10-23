@@ -4,7 +4,9 @@
 
 import { evaluateDiceFormula } from '../../foundry/dice-formula.js';
 import { type RollMode, rollModeProp, speakerFor, toFoundryRoll } from './chat.js';
+import { covertActor } from './covert-bridge.js';
 import { GmToolError, gmUserIds, num, type Obj, ok, resolveTarget, str, world } from './helpers.js';
+import { COVERT_OPS_ID } from './systems/covert-ops.js';
 import { getSystemAdapter, listSystemAdapters } from './systems/registry.js';
 import type { SystemCheckOptions } from './systems/types.js';
 import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
@@ -61,7 +63,10 @@ export const systemRollTools: GmToolSpec[] = [
         }
         throw new GmToolError(`Unknown kind "${kind}" for ${adapter.systemId}: ${kinds}`);
       }
-      const { actor, token } = resolveTarget(client, args);
+      const target = resolveTarget(client, args);
+      const { token } = target;
+      const actor =
+        adapter.systemId === COVERT_OPS_ID ? await covertActor(client, target) : target.actor;
       const opts: SystemCheckOptions = {};
       const key = str(args, 'key', false);
       const tgt = num(args, 'target', false);
