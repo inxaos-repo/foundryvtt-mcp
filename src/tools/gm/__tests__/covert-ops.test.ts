@@ -96,14 +96,14 @@ describe('covert-ops-d20', () => {
     expect(gmModify.mock.calls[0]?.[2].updates[0]['system.actionDice.value']).toBe(2);
   });
 
-  it('apply_damage uses vitality then wounds', async () => {
+  it('apply_damage uses vitality, excess not carried to wounds', async () => {
     const { client, gmModify } = makeClient(codWorld());
     const r = await run('apply_damage', client, { actorId: 'Agent Smith', amount: 25 });
     expect(r.text).toContain('VP 20 → 0/24');
-    expect(r.text).toContain('WP 14 → 9/14');
+    expect(r.text).toContain('WP 14 → 14/14');
     expect(gmModify.mock.calls[0]?.[2].updates[0]).toMatchObject({
       'system.vitality.value': 0,
-      'system.wounds.value': 9,
+      'system.wounds.value': 14,
     });
     const crit = await run('apply_damage', client, {
       actorId: 'Agent Smith',

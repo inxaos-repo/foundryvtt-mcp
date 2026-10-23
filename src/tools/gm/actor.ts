@@ -265,11 +265,14 @@ export async function writeFields(
 }
 
 /**
- * Vitality/wounds damage for covert-ops-d20, mirroring the system's
- * applyDamage(amount, {toWounds}) (headless clients cannot call it): damage
- * comes off vitality first and the excess off wounds; toWounds (critical hits,
- * or NPCs without vitality) goes straight to wounds. Negative amount heals
- * vitality (or wounds with toWounds). Down at 0 wounds or fewer.
+ * Vitality/wounds damage for covert-ops-d20, matching the system's combat
+ * rules (module/combat/damage.mjs, headless clients cannot call it): a normal
+ * hit comes off vitality; damage beyond the vitality left is lost (it does not
+ * spill into wounds); once vitality is 0, hits go to wounds. toWounds
+ * (critical hits) goes straight to wounds. Negative amount heals vitality (or
+ * wounds with toWounds). Down at 0 wounds or fewer.
+ * Not modelled here (use the in-Foundry damage card): standard NPC Damage
+ * saves, damage reduction, massive damage (25+/50+), subdual and stress.
  */
 export async function applyCovertDamage(
   client: FoundryClient,
@@ -292,8 +295,11 @@ export async function applyCovertDamage(
   } else if (toWounds || vpMax <= 0) {
     nw = wp - amount;
   } else {
-    nv = Math.max(0, vp - amount);
-    nw = wp - Math.max(0, amount - vp);
+    if (vp > 0) {
+      nv = Math.max(0, vp - amount);
+    } else {
+      nw = wp - amount;
+    }
   }
   await writeFields(client, t, { 'system.vitality.value': nv, 'system.wounds.value': nw });
   const down = nw <= 0;
@@ -327,7 +333,7 @@ export const actorTools: GmToolSpec[] = [
         toWounds: {
           type: 'boolean',
           description:
-            'covert-ops-d20 only: damage goes straight to wounds (critical hit). Otherwise vitality first, excess to wounds.',
+            'covert-ops-d20 only: damage goes straight to wounds (critical hit). Otherwise vitality, or wounds once vitality is 0 (excess is not carried over). Standard NPCs (no vitality) resolve damage with a Damage save: use the damage card in Foundry.',
         },
       },
     },
@@ -337,6 +343,15 @@ export const actorTools: GmToolSpec[] = [
         const amount = num(args, 'amount', false);
         if (amount === undefined) {
           throw new GmToolError('covert-ops-d20: pass amount (negative heals)');
+        }
+        if (
+          amount > 0 &&
+          String(t.actor.type) === 'npc' &&
+          readField(t, 'system.vitality.max') <= 0
+        ) {
+          throw new GmToolError(
+            'covert-ops-d20: standard NPCs (no vitality) take damage through a Damage save; apply it with the damage card in Foundry',
+          );
         }
         return applyCovertDamage(client, t, amount, bool(args, 'toWounds', false) ?? false);
       }
