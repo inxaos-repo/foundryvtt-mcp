@@ -70,7 +70,21 @@ export function covertOpsSummary(actor: Obj): Obj {
   const sys = (actor.system ?? {}) as Obj;
   const cached = getPath(actor, `flags.${COVERT_OPS_ID}.derived`) as Obj | undefined;
   if (cached && n(cached.v) === 1) {
-    return { name: actor.name, type: actor.type, ...cached, source: 'derived' };
+    // Current pools come from stored data: the snapshot lags (debounced) or may be stale
+    // once the GM browser has gone; maxima/derived numbers come from the snapshot.
+    const live = (k: string) => {
+      const c = (cached[k] ?? {}) as Obj;
+      const v = getPath(sys, `${k}.value`);
+      return v === undefined ? c : { ...c, value: v };
+    };
+    return {
+      name: actor.name,
+      type: actor.type,
+      ...cached,
+      vitality: live('vitality'),
+      wounds: live('wounds'),
+      source: 'derived',
+    };
   }
   const origins = itemsOf(actor).filter((i) => i.type === 'origin');
   const score = (a: string): number =>
