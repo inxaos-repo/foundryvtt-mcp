@@ -19,6 +19,8 @@ const st = { state: 'starting', world: null, system: null, flagged: false, since
 let browser = null;
 let page = null;
 let backoff = 5000;
+let cdp = null;
+let lastTask = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 function setState(s, extra = {}) {
@@ -47,6 +49,9 @@ async function newPage() {
   // No canvas: this client only needs the data layer + system hooks.
   await page.addInitScript(() => { try { localStorage.setItem('core.noCanvas', 'true'); } catch {} });
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
+  cdp = await ctx.newCDPSession(page).catch(() => null);
+  lastTask = null;
+  await cdp?.send('Performance.enable').catch(() => {});
   page.on('pageerror', (e) => log('pageerror', String(e).slice(0, 160)));
 }
 
@@ -59,8 +64,11 @@ async function login() {
   if (!path.endsWith('/join')) { setState('no-world', { world: null, flagged: false, lastErr: `redirected to ${path}` }); return 60000; }
   await page.waitForSelector('select[name=userId]', { timeout: 30000 });
   const world = await page.evaluate(() => document.querySelector('meta[name="world"]')?.content || document.title);
-  const id = await page.evaluate((n) => [...document.querySelectorAll('select[name=userId] option')].find((o) => o.textContent.trim() === n)?.value, USER);
-  if (!id) { setState('user-not-in-world', { world, flagged: false, lastErr: `user ${USER} not in world` }); return 120000; }
+  const opt = await page.evaluate((n) => { const o = [...document.querySelectorAll('select[name=userId] option')].find((o) => o.textContent.trim() === n); return o && { id: o.value, disabled: o.disabled }; }, USER);
+  if (!opt) { setState('user-not-in-world', { world, flagged: false, lastErr: `user ${USER} not in world` }); return 120000; }
+  // Disabled = Foundry still sees an active session for this user (e.g. old pod not yet timed out).
+  if (opt.disabled) { setState('user-busy', { world, flagged: false, lastErr: `user ${USER} already connected elsewhere` }); return 15000; }
+  const id = opt.id;
   await page.selectOption('select[name=userId]', id);
   await page.fill('input[name=password]', PASS);
   await page.click('button[name=join]');
@@ -86,7 +94,13 @@ async function login() {
 async function healthy() {
   if (!browser?.isConnected() || !page || page.isClosed()) return false;
   if (!new URL(page.url()).pathname.endsWith('/game')) return false;
-  return page.evaluate(() => !!(window.game?.ready && game.socket?.connected)).catch(() => false);
+  const h = await page.evaluate(() => ({ ok: !!(window.game?.ready && game.socket?.connected), noCanvas: game.settings.get('core', 'noCanvas'), canvas: !!window.canvas?.ready })).catch(() => null);
+  if (h) Object.assign(st, { noCanvas: h.noCanvas, canvas: h.canvas });
+  if (h?.ok && cdp) {
+    const m = (await cdp.send('Performance.getMetrics').catch(() => null))?.metrics?.find((x) => x.name === 'TaskDuration')?.value;
+    if (m != null) { const now = Date.now(); if (lastTask) st.rendererBusy = +((m - lastTask.v) / ((now - lastTask.t) / 1000)).toFixed(3); lastTask = { v: m, t: now }; }
+  }
+  return !!h?.ok;
 }
 
 async function main() {
@@ -98,7 +112,7 @@ async function main() {
       if (await healthy()) { await sleep(CHECK_MS); continue; }
       // Foundry's own client reconnects after brief socket drops; give it ~30s first.
       let ok = false;
-      for (let i = 0; i < 6 && !ok; i++) { await sleep(5000); st.tick = Date.now(); ok = await healthy(); }
+      for (let i = 0; i < 6 && !ok && browser?.isConnected(); i++) { await sleep(5000); st.tick = Date.now(); ok = await healthy(); }
       if (ok) continue;
       setState('reconnecting', { flagged: false });
     }

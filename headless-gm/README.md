@@ -8,7 +8,7 @@ Keeps a headless Chromium logged into Foundry's active world as a dedicated GM u
 - `/healthz` 200 only when `game.ready`, socket connected and the system's bridge flag
   is set (`flags.covert-ops-d20.bridgeClient = "headless"`); `/livez` 200 while the
   supervisor loop is ticking (use for liveness so idle states never crashloop).
-- States: `ready`, `no-world` (setup screen; retry 60s), `user-not-in-world` (retry 120s),
+- States: `ready`, `no-world` (setup screen; retry 60s), `user-not-in-world` (retry 120s), `user-busy` (user still connected elsewhere; retry 15s),
   `no-bridge-system`, `reconnecting`, `error` (backoff 5s..120s), `not-gm`.
 - Canvas is disabled (`core.noCanvas`) to keep memory/CPU low.
 - GM selection: covert-ops-d20 >= 0.4.1 elects among active flagged GM clients, human
