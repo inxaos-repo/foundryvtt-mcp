@@ -96,6 +96,29 @@ describe('covert-ops-d20', () => {
     expect(gmModify.mock.calls[0]?.[2].updates[0]['system.actionDice.value']).toBe(2);
   });
 
+  it('covert_ops summary marks cached derived values stale without a GM browser', async () => {
+    const w = codWorld();
+    const a = w.actors[0] as Record<string, unknown>;
+    a.flags = {
+      'covert-ops-d20': {
+        derived: {
+          v: 1,
+          cachedAt: 1234,
+          defense: 22,
+          vitality: { value: 20, max: 30 },
+          wounds: { value: 14, max: 14 },
+          actionDice: { value: 3, die: 4 },
+        },
+      },
+    };
+    const { client } = makeClient(w);
+    const s = await run('covert_ops', client, { action: 'summary', actorId: ID(1) });
+    expect(s.text).toContain('[stale]');
+    expect(s.text).toContain('"stale": true');
+    expect(s.text).toContain('"cachedAt": 1234');
+    expect(s.text).toContain('"source": "derived"');
+  });
+
   it('apply_damage uses vitality, excess not carried to wounds', async () => {
     const { client, gmModify } = makeClient(codWorld());
     const r = await run('apply_damage', client, { actorId: 'Agent Smith', amount: 25 });

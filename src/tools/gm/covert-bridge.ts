@@ -105,6 +105,19 @@ export function mergeDeep(a: Obj, b: Obj): Obj {
  * automatically). Without a GM browser, covertOpsSummary recomputes.
  */
 export async function covertActor(client: FoundryClient, t: Target, refresh = false): Promise<Obj> {
+  return (await covertActorStatus(client, t, refresh)).actor;
+}
+
+/**
+ * covertActor plus whether a GM browser answered with a fresh derived snapshot.
+ * fresh=false means any derived values come from the (possibly stale) cache.
+ */
+export async function covertActorStatus(
+  client: FoundryClient,
+  t: Target,
+  refresh = false,
+): Promise<{ actor: Obj; fresh: boolean }> {
+  let fresh = false;
   const delta = (t.unlinked ? t.token?.delta : undefined) as Obj | undefined;
   let actor: Obj = delta
     ? {
@@ -128,6 +141,7 @@ export async function covertActor(client: FoundryClient, t: Target, refresh = fa
   if ((refresh || delta || !cached) && gmBrowserActive(client)) {
     const res = await bridgeRequest(client, t, { op: 'derive' }, 3000);
     if (res?.ok && res.derived) {
+      fresh = true;
       const f = ((actor.flags as Obj | undefined)?.[COVERT_OPS_ID] ?? {}) as Obj;
       actor = {
         ...actor,
@@ -135,5 +149,5 @@ export async function covertActor(client: FoundryClient, t: Target, refresh = fa
       };
     }
   }
-  return actor;
+  return { actor, fresh };
 }

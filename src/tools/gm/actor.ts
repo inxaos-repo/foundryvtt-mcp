@@ -304,9 +304,13 @@ export async function applyCovertDamage(
     amount = Math.max(0, amount - dr);
   }
   const vp = readField(t, 'system.vitality.value');
-  const vpMax = readField(t, 'system.vitality.max');
+  // classes-mode agents store max 0; the GM client's derived cache has the real max.
+  const derived = (getPath(t.token?.delta ?? {}, `flags.${COVERT_OPS_ID}.derived`) ??
+    getPath(t.actor, `flags.${COVERT_OPS_ID}.derived`)) as Obj | undefined;
+  const dMax = (k: string) => Number(getPath(derived, `${k}.max`) ?? 0);
+  const vpMax = readField(t, 'system.vitality.max') || dMax('vitality');
   const wp = readField(t, 'system.wounds.value');
-  const wpMax = readField(t, 'system.wounds.max');
+  const wpMax = readField(t, 'system.wounds.max') || dMax('wounds');
   let nv = vp;
   let nw = wp;
   if (amount < 0) {

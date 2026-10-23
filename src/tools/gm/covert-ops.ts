@@ -4,8 +4,8 @@
  */
 
 import { evaluateDiceFormula } from '../../foundry/dice-formula.js';
-import { covertActor } from './covert-bridge.js';
-import { GmToolError, num, type Obj, ok, resolveTarget, str, world } from './helpers.js';
+import { covertActorStatus } from './covert-bridge.js';
+import { GmToolError, getPath, num, type Obj, ok, resolveTarget, str, world } from './helpers.js';
 import { COVERT_OPS_ID, covertOpsSummary } from './systems/covert-ops.js';
 import { type GmToolSpec, WRITE_NOTE } from './tool-spec.js';
 
@@ -36,14 +36,21 @@ export const covertOpsTools: GmToolSpec[] = [
       }
       const action = str(args, 'action') as string;
       const t = resolveTarget(client, args);
-      const actor = await covertActor(client, t);
+      // summary asks the GM browser for a fresh snapshot; if none answers in time,
+      // cached derived values are flagged stale instead of silently served.
+      const { actor, fresh } = await covertActorStatus(client, t, action === 'summary');
       const s = covertOpsSummary(actor as Obj) as Obj & {
         actionDice: { value: number; die: number };
       };
+      if (action === 'summary' && !fresh && s.source === 'derived') {
+        const c = getPath(actor, `flags.${COVERT_OPS_ID}.derived`) as Obj | undefined;
+        s.stale = true;
+        s.cachedAt = c?.cachedAt ?? c?.at ?? c?.ts ?? getPath(actor, '_stats.modifiedTime') ?? null;
+      }
       const name = t.token?.name ?? t.actor.name;
       if (action === 'summary') {
         return ok(
-          `🕵️ ${name}: Def ${s.defense}, VP ${(s.vitality as Obj).value}/${(s.vitality as Obj).max}, WP ${(s.wounds as Obj).value}/${(s.wounds as Obj).max}, AD ${s.actionDice.value}d${s.actionDice.die}`,
+          `🕵️ ${name}: Def ${s.defense}, ${s.stale ? '[stale] ' : ''}VP ${(s.vitality as Obj).value}/${(s.vitality as Obj).max}, WP ${(s.wounds as Obj).value}/${(s.wounds as Obj).max}, AD ${s.actionDice.value}d${s.actionDice.die}`,
           s,
         );
       }
