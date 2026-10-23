@@ -10,7 +10,7 @@ Keeps a headless Chromium logged into Foundry's active world as a dedicated GM u
   supervisor loop is ticking (use for liveness so idle states never crashloop).
 - States: `ready`, `no-world` (setup screen; retry 60s), `user-not-in-world` (retry 120s), `user-busy` (user still connected elsewhere; retry 15s),
   `no-bridge-system`, `reconnecting`, `error` (backoff 5s..120s), `not-gm`.
-- Canvas is disabled (`core.noCanvas`) to keep memory/CPU low.
+- Canvas is disabled (`core.noCanvas`) and CSS animations are collapsed to keep memory/CPU low (~250Mi, ~10-20m CPU idle).
 - GM selection: covert-ops-d20 >= 0.4.1 elects among active flagged GM clients, human
   browsers (flag `true`) before headless (flag `"headless"`), then lowest user id. A human GM
   therefore takes over automatically; the headless client serves when no human GM is on.

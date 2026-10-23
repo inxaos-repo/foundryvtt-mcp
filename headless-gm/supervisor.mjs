@@ -48,6 +48,13 @@ async function newPage() {
   page.setDefaultTimeout(20000);
   // No canvas: this client only needs the data layer + system hooks.
   await page.addInitScript(() => { try { localStorage.setItem('core.noCanvas', 'true'); } catch {} });
+  // Nobody watches this page: collapse CSS animations/transitions (spinners etc. otherwise keep the
+  // software compositor busy, ~250m CPU -> ~10m). 1ms + single iteration keeps *end events firing.
+  await page.addInitScript(() => addEventListener('DOMContentLoaded', () => {
+    const s = document.createElement('style');
+    s.textContent = '*,*::before,*::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:1ms!important;transition-delay:0s!important}';
+    document.head.append(s);
+  }));
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
   cdp = await ctx.newCDPSession(page).catch(() => null);
   lastTask = null;
