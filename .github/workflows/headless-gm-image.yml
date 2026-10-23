@@ -1,0 +1,38 @@
+name: Headless GM image
+
+on:
+  push:
+    branches: [main]
+    paths: ['headless-gm/**', '.github/workflows/headless-gm-image.yml']
+  pull_request:
+    paths: ['headless-gm/**', '.github/workflows/headless-gm-image.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: echo "sha=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: headless-gm
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/inxaos-repo/foundry-headless-gm:${{ steps.tag.outputs.sha }}
+            ghcr.io/inxaos-repo/foundry-headless-gm:latest
+          cache-from: type=gha,scope=headless-gm
+          cache-to: type=gha,mode=max,scope=headless-gm
+      - run: echo "IMAGE_TAG=ghcr.io/inxaos-repo/foundry-headless-gm:${{ steps.tag.outputs.sha }}"
