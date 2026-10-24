@@ -5,10 +5,14 @@ Keeps a headless Chromium logged into Foundry's active world as a dedicated GM u
 (e.g. covert-ops-d20's derived-data cache and damage relay for the MCP bridge).
 
 - Env: `FOUNDRY_URL`, `GM_USER` (default `gm-headless`), `GM_PASSWORD`, `PORT` (8080).
-- `/healthz` 200 only when `game.ready`, socket connected and the system's bridge flag
-  is set (`flags.covert-ops-d20.bridgeClient = "headless"`); `/livez` 200 while the
-  supervisor loop is ticking (use for liveness so idle states never crashloop).
-- States: `ready`, `no-world` (setup screen; retry 60s), `user-not-in-world` (retry 120s), `user-busy` (user still connected elsewhere; retry 15s),
+- `/status` 200 only when `game.ready`, socket connected and the system's bridge flag
+  is set (`flags.covert-ops-d20.bridgeClient = "headless"`); 503 otherwise (body has the state).
+- `/healthz` (readiness) and `/livez` (liveness) are 200 while the supervisor loop is ticking.
+  Idle states (no world, user not in world, world switch) must not make the pod unready:
+  an unready Deployment fails the Flux `apps` Kustomization health check and blocks all applies.
+- No-world detection uses `/api/status` (`active:false`); v14 serves `/join` as a 200
+  "Critical Failure!" page then, which made the old selector wait time out forever.
+- States: `ready`, `no-world` (setup screen; retry 30s), `user-not-in-world` (retry 120s), `user-busy` (user still connected elsewhere; retry 15s),
   `no-bridge-system`, `reconnecting`, `error` (backoff 5s..120s), `not-gm`.
 - Canvas is disabled (`core.noCanvas`) and CSS animations are collapsed to keep memory/CPU low (~250Mi, ~10-20m CPU idle).
 - GM selection: covert-ops-d20 >= 0.4.1 elects among active flagged GM clients, human

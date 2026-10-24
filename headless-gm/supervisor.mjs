@@ -21,7 +21,7 @@ let page = null;
 let backoff = 5000;
 let cdp = null;
 let lastTask = null;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = async (ms) => { for (const end = Date.now() + ms; Date.now() < end;) { st.tick = Date.now(); await new Promise((r) => setTimeout(r, Math.min(10000, end - Date.now()))); } st.tick = Date.now(); };
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 function setState(s, extra = {}) {
   if (s !== st.state) { log(`state ${st.state} -> ${s}`, Object.keys(extra).length ? JSON.stringify(extra) : ''); st.since = Date.now(); }
@@ -29,7 +29,11 @@ function setState(s, extra = {}) {
 }
 
 http.createServer((req, res) => {
-  const ok = req.url.startsWith('/livez') ? Date.now() - st.tick < 180000 : st.state === 'ready';
+  // /livez + /healthz (readiness): the supervisor loop is alive. Idle states (no world, user not in
+  // world, world switch) are legitimate and must not make the pod unready (it blocked Flux health checks).
+  // /status: 200 only when logged in as GM and serving the bridge (for monitoring / humans).
+  const alive = Date.now() - st.tick < 180000;
+  const ok = req.url.startsWith('/status') ? st.state === 'ready' : alive;
   res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ ok, ...st, lastErr: st.lastErr?.slice(0, 200) }));
 }).listen(PORT, () => log(`listening :${PORT} url=${URL_} user=${USER}`));
@@ -64,11 +68,15 @@ async function newPage() {
 
 /** One login attempt. Returns ms to wait before the next attempt (0 = logged in). */
 async function login() {
+  // v14 serves /join with HTTP 200 "Critical Failure!" when no world is active, so ask /api/status first.
+  const status = await fetch(`${URL_}/api/status`, { signal: AbortSignal.timeout(10000) }).then((r) => r.json()).catch((e) => ({ err: String(e.message || e) }));
+  if (status.err) throw new Error(`api/status: ${status.err}`);
+  if (!status.active) { setState('no-world', { world: null, flagged: false, lastErr: 'no active world' }); return 30000; }
   await ensureBrowser();
   await newPage();
   await page.goto(`${URL_}/join`, { waitUntil: 'domcontentloaded' });
   const path = new URL(page.url()).pathname;
-  if (!path.endsWith('/join')) { setState('no-world', { world: null, flagged: false, lastErr: `redirected to ${path}` }); return 60000; }
+  if (!path.endsWith('/join')) { setState('no-world', { world: null, flagged: false, lastErr: `redirected to ${path}` }); return 30000; }
   await page.waitForSelector('select[name=userId]', { timeout: 30000 });
   const world = await page.evaluate(() => document.querySelector('meta[name="world"]')?.content || document.title);
   const opt = await page.evaluate((n) => { const o = [...document.querySelectorAll('select[name=userId] option')].find((o) => o.textContent.trim() === n); return o && { id: o.value, disabled: o.disabled }; }, USER);
